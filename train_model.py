@@ -3,25 +3,35 @@ from firebase_admin import credentials, firestore
 import pandas as pd
 import numpy as np
 import pytz
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, time
+from colorama import Fore, Style, init
+
+# Inicializar colorama
+init(autoreset=True)
+
+# Funciones para imprimir con colores
+def info(msg): print(f"{Fore.BLUE}[INFO]{Style.RESET_ALL} {msg}")
+def success(msg): print(f"{Fore.GREEN}[SUCCESS]{Style.RESET_ALL} {msg}")
+def warning(msg): print(f"{Fore.YELLOW}[WARNING]{Style.RESET_ALL} {msg}")
+def error(msg): print(f"{Fore.RED}[ERROR]{Style.RESET_ALL} {msg}")
 
 # --------------------------
 # 1. Conexión a Firebase
 # --------------------------
-print('-' * 60)
-print('CONECTANDO A FIREBASE...')
+print('\n' + '=' * 60)
+info('Paso 1: Conectando a Firebase...')
 cred = credentials.Certificate('./credentials_firebase/onehealth-f4967-firebase-adminsdk-fbsvc-e899f7b095.json')
 if not firebase_admin._apps:
     firebase_admin.initialize_app(cred)
 
 db = firestore.client()
-print('Conexión a Firebase realizada exitosamente ✔')
+success('Conexión a Firebase realizada exitosamente ✔')
 
 # ------------------------------------------
 # 2. Obtención de formularios de Firestore
 # ------------------------------------------
-print('-' * 60)
-print('OBTENIENDO DATOS DE FIREBASE...')
+print('\n' + '=' * 60)
+info('Paso 2: Obteniendo datos de la colección "formularios"...')
 formularios = []
 try:
     doc_ref = db.collection('formularios')
@@ -32,159 +42,125 @@ try:
         form_data['doc_id'] = doc.id
         formularios.append(form_data)
 
-    print(f'{len(formularios)} formularios encontrados y cargados correctamente ✔')
+    success(f'{len(formularios)} formularios encontrados y cargados correctamente ✔')
 except Exception as e:
-    print('Error leyendo Firestore:', e)
+    error(f'Fallo al leer los formularios desde Firestore: {e}')
     formularios = []
 
-# ------------------------------------------
-# 2. Obtención de datos biométricos de Firestore
-# ------------------------------------------
-# Pending
+# ------------------------------------------------
+# 3. Obtención de datos biométricos de Firestore
+# ------------------------------------------------
+print('\n' + '=' * 60)
+info('Paso 3: Obteniendo datos de biométricos de "biometric_data"...')
+error('Not implemented yet...')
 
-# -------------------------------------
-# 3. Preprocesar datos de formularios
-# -------------------------------------
+# ----------------------------------------------------------------------------------------
+# 4. Preprocesamiento de datos de formularios (catalogación en formulario de mañana o noche)
+# ----------------------------------------------------------------------------------------
+print('\n' + '=' * 60)
+info('Paso 4: Procesando formularios...')
+
 if formularios:
-    # Creamos dataframe general
     df = pd.DataFrame(formularios)
 
-    # Comporbamos que recorded_at tiene formato datetime y zona horaria correcta
-    df['recorded_at'] = pd.to_datetime(df['recorded_at'])
-    madrid_tz = pytz.timezone('Europe/Madrid')
-    df['recorded_at'] = df['recorded_at'].dt.tz_convert(madrid_tz)
+    # Convertir recorded_at a datetime y ajustar zona horaria
+    print(Fore.CYAN + '[INFO] Ajustando zona horaria de recorded_at...')
+    try:
+        df['recorded_at'] = pd.to_datetime(df['recorded_at']).dt.tz_convert('Europe/Madrid')
+        success('Fechas convertidas y ajustadas a zona horaria Europe/Madrid ✔')
+    except Exception as e:
+        error(f'Error al convertir las fechas: {e}')
 
-    # Clasificar el formulario entre mañana(6am-19pm)/noche(19pm-6am)
-    def classify_period(recorded_at):
-        hour = recorded_at.hour
-        if 6 <= hour < 19:
+    # Función para clasificar el período
+    print(Fore.CYAN + '[INFO] Clasificando formularios en "mañana" y "noche"...')
+    def classify_period(row):
+        hour = row['recorded_at'].hour
+        minute = row['recorded_at'].minute
+        if time(6, 0) <= time(hour, minute) < time(19, 0):
             return 'mañana'
         else:
             return 'noche'
 
-    df['period'] = df['recorded_at'].apply(classify_period)
+    # Aplicar clasificación
+    df['period'] = df.apply(classify_period, axis=1)
 
-    # Crear día lógico
-    def logical_day(recorded_at, period):
-        if period == 'noche' and recorded_at.hour < 6:
-            return (recorded_at - timedelta(days=1)).date()
-        else:
-            return recorded_at.date()
+    # Separar en dos DataFrames
+    df_morning = df[df['period'] == 'mañana'].copy()
+    df_night = df[df['period'] == 'noche'].copy()
 
-    df['logical_day'] = df.apply(lambda row: logical_day(row['recorded_at'], row['period']), axis=1)
-
-    # --------------------------------------------
-    # 4. Ordenar y unir formularios mañana-noche
-    # --------------------------------------------
-    # Formularios de mañana y noche consecutivos matcheados por id_user y logical_day
-    merged_rows = []
-
-    # Agrupamos los DataFrame por id_user y luego por logical_day
-    # Para cada usuario y día lógico, seleccionamos el primer registro de la mañana y el primer registro de la noche ordenados por recorded_at
-    # Combinamos estos dos registros en un solo y lo agrega a la lista merged_rows
-    for user_id, group in df.groupby('id_user'):
-        for day, day_group in group.groupby('logical_day'):
-            morning = day_group[day_group['period'] == 'mañana']
-            night = day_group[day_group['period'] == 'noche']
-
-            if len(morning) > 0 and len(night) > 0:
-                morning_row = morning.sort_values('recorded_at').iloc[0]
-                night_row = night.sort_values('recorded_at').iloc[0]
-
-                merged = {f'morning_{col}': morning_row[col] for col in morning_row.index}
-                merged.update({f'night_{col}': night_row[col] for col in night_row.index})
-                merged_rows.append(merged)
-
-    merged_df = pd.DataFrame(merged_rows)
-    print(f'{len(merged_df)} pares de formularios mañana-noche combinados ✔')
-
-    pd.set_option('display.max_columns', None)
-    pd.set_option('display.width', None)
-    print(merged_df)
-
-    # -----------------------------------------
-    # 5. Procesamiento del dataframe fusuinado
-    # -----------------------------------------
-    print('-' * 60)
-    print('PREPROCESANDO DATOS DEL DATAFRAME...')
-
-    # Tomar solo los datos de interés (excluyendo metadata como 'doc_id', etc.)
-    formularios_data = [f for f in formularios]
-    processed_df = pd.DataFrame(formularios_data)
-
-    print(processed_df)
-
-    # ----------------------------------------
-    # 5.1 Eliminamos columnas no relevantes
-    # ----------------------------------------
-    print('Eliminando columnas NO relevantes...')
-    columns_to_drop = ['id_user', 'doc_id']
-    columns_to_remove = [col for col in columns_to_drop if col in processed_df.columns]
-    if columns_to_remove:
-        print(f'Columnas eliminadas: {columns_to_remove} ✔\n')
-        processed_df = processed_df.drop(columns=columns_to_remove)
-
-    # ----------------------------------------   
-    # 5.2 Eliminamos filas con valores nulos
-    # ----------------------------------------
-    print('Eliminando filas con valores nulos...')
-    nulos = processed_df[processed_df.isnull().any(axis=1)]
-    if not nulos.empty:
-        print(f'Se eliminaron {len(nulos)} filas con nulos ✔\n')
-        processed_df = processed_df.dropna()
+    if not df_morning.empty and not df_night.empty:
+        success('Formularios clasificados y DataFrames creados correctamente ✔')
     else:
-        print('No se encontraron filas nulas ✔\n')
+        warning('Algunos de los DataFrames "mañana" o "noche" están vacíos.')
 
-    # ---------------------------------------------------
-    # 5.3 Convertimos variables categóricas a numéricas
-    # ---------------------------------------------------
-    print('Convirtiendo variables categóricas a numéricas...')
-    processed_df = pd.get_dummies(processed_df)
-    print('Conversión completada ✔\n')
 
-    # ----------------------------
-    # 5.4 Detección de duplicados
-    # ----------------------------
-    print('Detectando duplicados...')
-    duplicados = processed_df.duplicated().sum()
-    if duplicados > 0:
-        print(f'{duplicados} duplicados encontrados, eliminando...')
-        processed_df = processed_df.drop_duplicates()
+else:
+    warning('No se encontraron formularios para procesar.')
+
+# ----------------------------------------------------------------------------------------
+# 5. Procesamiento de datos:
+# ----------------------------------------------------------------------------------------
+print('\n' + '=' * 60)
+info('Paso 5: Procesando datos...')
+
+for df_label, df_ref in [('mañana', df_morning), ('noche', df_night)]:
+    print(Fore.CYAN + f'\n[INFO] Procesando formularios de: {df_label.upper()}')
+
+    # -----------------------------------------------------------------------------
+    # 5.1 Eliminar Columnas No Relevantes
+    # -----------------------------------------------------------------------------
+    columns_to_drop = ['id_user', 'recorded_at', 'period']
+    df_ref.drop(columns=columns_to_drop, errors='ignore', inplace=True)
+
+    # -----------------------------------------------------------------------------
+    # 5.2 Eliminar Filas con Valores Nulos
+    # -----------------------------------------------------------------------------
+    critical_columns = ['sadnessLevel', 'happinessLevel', 'avgEnergyLevel']
+    df_ref.dropna(subset=critical_columns, inplace=True)
+
+    # -----------------------------------------------------------------------------
+    # 5.3 Convertir Variables Categóricas a Numéricas
+    # -----------------------------------------------------------------------------
+    df_ref = pd.get_dummies(df_ref, columns=['country', 'state', 'city'], drop_first=True)
+
+    # -----------------------------------------------------------------------------
+    # 5.4 Detectar y Eliminar Duplicados
+    # -----------------------------------------------------------------------------
+    df_ref.drop_duplicates(inplace=True)
+
+    # -----------------------------------------------------------------------------
+    # 5.5 Análisis y Manejo de Outliers
+    # -----------------------------------------------------------------------------
+    def remove_outliers(df, column):
+        Q1 = df[column].quantile(0.25)
+        Q3 = df[column].quantile(0.75)
+        IQR = Q3 - Q1
+        lower_bound = Q1 - 1.5 * IQR
+        upper_bound = Q3 + 1.5 * IQR
+        return df[(df[column] >= lower_bound) & (df[column] <= upper_bound)]
+
+    numeric_cols = ['sadnessLevel', 'avgEnergyLevel', 'maxAnxietyLevel', 'happinessLevel']
+    for col in numeric_cols:
+        if col in df_ref.columns:
+            df_ref = remove_outliers(df_ref, col)
+
+    # -----------------------------------------------------------------------------
+    # 5.5 Crear Nuevas Variables Calculadas
+    # -----------------------------------------------------------------------------
+
+    # ----------------------------------------------
+    # 5.5.1 Calcular Tiempo Total de Redes Sociales 
+    # ----------------------------------------------
+    if 'instagram_time' in df_ref.columns and 'tiktok_time' in df_ref.columns:
+        df_ref['total_social_media_time'] = df_ref['instagram_time'] + df_ref['tiktok_time']
+        success(f'[{df_label.upper()}] Variable del tiempo total invertido en redes sociales creada correctamente ✔')
     else:
-        print('No duplicados encontrados ✔\n')
+        error(f'[{df_label.upper()}] Columnas necesarias para calcular el tiempo total de redes sociales no encontradas.')
 
-    # --------------------------
-    # 5.5 Análisis de outliers
-    # --------------------------
-    print('Analizando outliers...')
-    numeric_cols = processed_df.select_dtypes(include=['float64', 'int64']).columns
-    Q1 = processed_df[numeric_cols].quantile(0.25)
-    Q3 = processed_df[numeric_cols].quantile(0.75)
-    IQR = Q3 - Q1
-    outliers = ((processed_df[numeric_cols] < (Q1 - 1.5 * IQR)) | (processed_df[numeric_cols] > (Q3 + 1.5 * IQR)))
-    num_outliers = outliers.sum().sum()
-    if num_outliers > 0:
-        print(f'Detectados {num_outliers} valores atípicos.')
-    else:
-        print('No se detectaron outliers ✔\n')
-
-    # ----------------------------------------------------------------------------------------
-    # 5.6 Creación de nuevas variables calculadas de los datos que tenemos en los formularios
-    # ----------------------------------------------------------------------------------------
-    print('Creando nuevas variables...')
-
-    # -------------------------------
-    # Tiempo total en redes sociales
-    # -------------------------------
-    if 'instagram_time' in processed_df.columns and 'tiktok_time' in processed_df.columns:
-        processed_df['total_social_media_time'] = processed_df['instagram_time'] + processed_df['tiktok_time']
-        print('Variable del tiempo total invertido en redes sociales creada correctamente ✔')
-
-    # ---------------------------------------
-    # Extracción de top 1, top 2, top 3 apps
-    # ---------------------------------------
-    if 'final_ranking' in processed_df.columns:
-        print('Extrayendo Top apps...')
+    # ----------------------------------------------
+    # 5.5.2 Extraer app más usada, segunda más usada y tercera más usada
+    # ----------------------------------------------
+    if 'final_ranking' in df_ref.columns:
 
         def extract_top_apps(ranking_string, position):
             try:
@@ -193,31 +169,52 @@ if formularios:
             except Exception:
                 return None
 
-        processed_df['top1_app'] = processed_df['final_ranking'].apply(lambda x: extract_top_apps(x, 0))
-        processed_df['top2_app'] = processed_df['final_ranking'].apply(lambda x: extract_top_apps(x, 1))
-        processed_df['top3_app'] = processed_df['final_ranking'].apply(lambda x: extract_top_apps(x, 2))
-        print('Aplicaión mas usada, segunda más usada y tercera más usada creada correctamente ✔')
+        df_ref['top1_app'] = df_ref['final_ranking'].apply(lambda x: extract_top_apps(x, 0))
+        df_ref['top2_app'] = df_ref['final_ranking'].apply(lambda x: extract_top_apps(x, 1))
+        df_ref['top3_app'] = df_ref['final_ranking'].apply(lambda x: extract_top_apps(x, 2))
+        success(f'[{df_label.upper()}] Aplicación más usada, segunda más usada y tercera más usada creadas correctamente ✔')
+    else:
+        error(f'[{df_label.upper()}] Columna "final_ranking" no encontrada para extraer Top apps.')
 
-    # --------------------------
-    # Estado de ánimo promedio
-    # --------------------------
+    # ----------------------------------------------
+    # 5.5.3 Calcular Promedio de Estado de Ánimo
+    # ----------------------------------------------
     mood_cols = ['happinessLevel', 'sadnessLevel', 'apathyLevel', 'avgAnxietyLevel', 'avgEnergyLevel']
-    existing_mood_cols = [col for col in mood_cols if col in processed_df.columns]
+    existing_mood_cols = [col for col in mood_cols if col in df_ref.columns]
     if existing_mood_cols:
-        processed_df['average_mood'] = processed_df[existing_mood_cols].mean(axis=1)
-        print('Variable estado de ánimo promedio creada correctamente ✔')
+        df_ref['average_mood'] = df_ref[existing_mood_cols].mean(axis=1)
+        success(f'[{df_label.upper()}] Variable estado de ánimo promedio creada correctamente ✔')
+    else:
+        error(f'[{df_label.upper()}] No se encontraron columnas necesarias para calcular el estado de ánimo promedio.')
 
-    # --------------------------
-    # Duración del sueño
-    # --------------------------
-    if 'sleep_time' in processed_df.columns and 'wake_up_time' in processed_df.columns:
+    # ----------------------------------------------
+    # 5.5.4 Calcular cantidad de horas de sueño
+    # ----------------------------------------------
+    if 'sleep_time' in df_ref.columns and 'wake_up_time' in df_ref.columns:
         try:
-            processed_df['sleep_time'] = pd.to_datetime(processed_df['sleep_time'])
-            processed_df['wake_up_time'] = pd.to_datetime(processed_df['wake_up_time'])
-            processed_df['sleep_duration_hours'] = (processed_df['wake_up_time'] - processed_df['sleep_time']).dt.total_seconds() / 3600
-            print('Variable duracción del sueño creada correctamente ✔')
+            df_ref['sleep_time'] = pd.to_datetime(df_ref['sleep_time'])
+            df_ref['wake_up_time'] = pd.to_datetime(df_ref['wake_up_time'])
+            df_ref['sleep_duration_hours'] = (df_ref['wake_up_time'] - df_ref['sleep_time']).dt.total_seconds() / 3600
+            success(f'[{df_label.upper()}] Variable duración del sueño creada correctamente ✔')
         except Exception as e:
-            print(f'Error calculando duración de sueño: {e}')
+            error(f'[{df_label.upper()}] Error calculando duración del sueño: {e}')
+    else:
+        error(f'[{df_label.upper()}] Columnas necesarias para calcular la duración del sueño no encontradas.')
 
-else:
-    print('No se encontraron formularios para procesar.')
+# ----------------------------------------------------------------------------------------
+# 6. Guardar DataFrames en CSV para revisión
+# ----------------------------------------------------------------------------------------
+print('\n' + '=' * 60)
+info('Paso 6: Guardando DataFrames en archivos CSV para revisión...')
+
+try:
+    df_morning.to_csv('./output/df_morning.csv', index=False, encoding='utf-8-sig')
+    success('DataFrame "mañana" guardado exitosamente en ./output/df_morning.csv ✔')
+except Exception as e:
+    error(f'Error al guardar DataFrame "mañana": {e}')
+
+try:
+    df_night.to_csv('./output/df_night.csv', index=False, encoding='utf-8-sig')
+    success('DataFrame "noche" guardado exitosamente en ./output/df_night.csv ✔')
+except Exception as e:
+    error(f'Error al guardar DataFrame "noche": {e}')
