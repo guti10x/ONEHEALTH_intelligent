@@ -337,6 +337,111 @@ def plot_pairplot(df, title):
 plot_pairplot(df_morning, "Mañana")
 plot_pairplot(df_night, "Noche")
 
+# ----------------------------------------------------------------------------------------
+# 8. Preparación de Datos para Modelado
+# ----------------------------------------------------------------------------------------
+print('\n' + '=' * 60)
+info('Paso 8: Preparando los datos para entrenamiento y prueba...')
+
+from sklearn.model_selection import train_test_split
+
+# ----------------------------------------------------------------------------------------
+# 8.1 División de df_morning
+# ----------------------------------------------------------------------------------------
+print(Fore.CYAN + '[INFO] Verificando columnas y dimensiones de df_morning...')
+print("Dimensiones de df_morning:", df_morning.shape)
+print("Columnas de df_morning:", df_morning.columns)
+
+numeric_cols_morning = df_morning.select_dtypes(include=['number']).columns
+
+if len(numeric_cols_morning) <= 1 and 'happinessLevel' in numeric_cols_morning:
+    print(Fore.RED + "[ERROR] No hay suficientes columnas numéricas en df_morning para modelar.")
+    X_morning_train, X_morning_test, y_morning_train, y_morning_test = None, None, None, None
+else:
+    X_morning = df_morning.select_dtypes(include=['number']).drop(columns=['happinessLevel'], errors='ignore')
+    y_morning = df_morning['happinessLevel'] if 'happinessLevel' in df_morning.columns else None
+
+    print(Fore.CYAN + "Dimensiones de X_morning:", X_morning.shape)
+    print(Fore.CYAN + "Dimensiones de y_morning:", y_morning.shape)
+
+    if X_morning.shape[0] <= 1:
+        print(Fore.RED + "[ERROR] df_morning tiene solo una fila o está vacío. No se puede dividir.")
+        X_morning_train, X_morning_test, y_morning_train, y_morning_test = None, None, None, None
+    else:
+        print(Fore.CYAN + '[INFO] Rellenando valores nulos en X_morning con la media...')
+        X_morning = X_morning.fillna(X_morning.mean())
+
+        print(Fore.CYAN + '[INFO] Dividiendo df_morning en conjuntos de entrenamiento y prueba...')
+        X_morning_train, X_morning_test, y_morning_train, y_morning_test = train_test_split(
+            X_morning, y_morning, test_size=0.2, random_state=42
+        )
+        print(Fore.GREEN + '[ÉXITO] División de df_morning realizada con éxito:')
+        print(" - X_morning_train:", X_morning_train.shape)
+        print(" - X_morning_test :", X_morning_test.shape)
+
+# ----------------------------------------------------------------------------------------
+# 8.2 División de df_night
+# ----------------------------------------------------------------------------------------
+print(Fore.CYAN + '\n[INFO] Verificando columnas y dimensiones de df_night...')
+print("Dimensiones de df_night:", df_night.shape)
+print("Columnas de df_night:", df_night.columns)
+
+numeric_cols_night = df_night.select_dtypes(include=['number']).columns
+
+if len(numeric_cols_night) <= 1 and 'happinessLevel' in numeric_cols_night:
+    print(Fore.RED + "[ERROR] No hay suficientes columnas numéricas en df_night para modelar.")
+    X_night_train, X_night_test, y_night_train, y_night_test = None, None, None, None
+else:
+    X_night = df_night.select_dtypes(include=['number']).drop(columns=['happinessLevel'], errors='ignore')
+    y_night = df_night['happinessLevel'] if 'happinessLevel' in df_night.columns else None
+
+    print(Fore.CYAN + "Dimensiones de X_night:", X_night.shape)
+    print(Fore.CYAN + "Dimensiones de y_night:", y_night.shape)
+
+    if X_night.shape[0] <= 1:
+        print(Fore.RED + "[ERROR] df_night tiene solo una fila o está vacío. No se puede dividir.")
+        X_night_train, X_night_test, y_night_train, y_night_test = None, None, None, None
+    else:
+        print(Fore.CYAN + '[INFO] Rellenando valores nulos en X_night con la media...')
+        X_night = X_night.fillna(X_night.mean())
+
+        print(Fore.CYAN + '[INFO] Dividiendo df_night en conjuntos de entrenamiento y prueba...')
+        X_night_train, X_night_test, y_night_train, y_night_test = train_test_split(
+            X_night, y_night, test_size=0.2, random_state=42
+        )
+        print(Fore.GREEN + '[ÉXITO] División de df_night realizada con éxito:')
+        print(" - X_night_train:", X_night_train.shape)
+        print(" - X_night_test :", X_night_test.shape)
+
+# ----------------------------------------------------------------------------------------
+# 9 Escalado de datos numéricos
+# ----------------------------------------------------------------------------------------
+print('\n' + '=' * 60)
+info('Paso 8.3: Escalando variables numéricas...')
+
+from sklearn.preprocessing import StandardScaler
+
+# Escalado para df_morning
+if X_morning_train is not None and X_morning_test is not None:
+    print(Fore.CYAN + '[INFO] Aplicando escalado a df_morning...')
+    scaler_morning = StandardScaler()
+    X_morning_train_scaled = scaler_morning.fit_transform(X_morning_train)
+    X_morning_test_scaled = scaler_morning.transform(X_morning_test)
+    print(Fore.GREEN + '[ÉXITO] Escalado de df_morning completado.')
+else:
+    X_morning_train_scaled, X_morning_test_scaled = None, None
+    print(Fore.YELLOW + '[ADVERTENCIA] No se realizó el escalado de df_morning debido a datos insuficientes o división fallida.')
+
+# Escalado para df_night
+if X_night_train is not None and X_night_test is not None:
+    print(Fore.CYAN + '[INFO] Aplicando escalado a df_night...')
+    scaler_night = StandardScaler()
+    X_night_train_scaled = scaler_night.fit_transform(X_night_train)
+    X_night_test_scaled = scaler_night.transform(X_night_test)
+    print(Fore.GREEN + '[ÉXITO] Escalado de df_night completado.')
+else:
+    X_night_train_scaled, X_night_test_scaled = None, None
+    print(Fore.YELLOW + '[ADVERTENCIA] No se realizó el escalado de df_night debido a datos insuficientes o división fallida.')
 
 # ----------------------------------------------------------------------------------------
 # Entrenar modelo
