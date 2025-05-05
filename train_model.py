@@ -5,6 +5,8 @@ import numpy as np
 import pytz
 from datetime import datetime, timedelta, time
 from colorama import Fore, Style, init
+import matplotlib.pyplot as plt
+import seaborn as sns
 
 # Inicializar colorama
 init(autoreset=True)
@@ -43,6 +45,7 @@ try:
         formularios.append(form_data)
 
     success(f'{len(formularios)} formularios encontrados y cargados correctamente ✔')
+    print(f'Formularios: {formularios}')
 except Exception as e:
     error(f'Fallo al leer los formularios desde Firestore: {e}')
     formularios = []
@@ -202,19 +205,143 @@ for df_label, df_ref in [('mañana', df_morning), ('noche', df_night)]:
         error(f'[{df_label.upper()}] Columnas necesarias para calcular la duración del sueño no encontradas.')
 
 # ----------------------------------------------------------------------------------------
-# 6. Guardar DataFrames en CSV para revisión
+# 6. Guardar DataFrames procedo resultantes
 # ----------------------------------------------------------------------------------------
 print('\n' + '=' * 60)
-info('Paso 6: Guardando DataFrames en archivos CSV para revisión...')
+info('Paso 6: Guardando DataFrames en archivos CSV...')
 
 try:
     df_morning.to_csv('./output/df_morning.csv', index=False, encoding='utf-8-sig')
-    success('DataFrame "mañana" guardado exitosamente en ./output/df_morning.csv ✔')
+    success('DataFrame de mañana guardado exitosamente en ./output/df_morning.csv ✔')
 except Exception as e:
     error(f'Error al guardar DataFrame "mañana": {e}')
 
 try:
     df_night.to_csv('./output/df_night.csv', index=False, encoding='utf-8-sig')
-    success('DataFrame "noche" guardado exitosamente en ./output/df_night.csv ✔')
+    success('DataFrame de noche guardado exitosamente en ./output/df_night.csv ✔')
 except Exception as e:
     error(f'Error al guardar DataFrame "noche": {e}')
+
+# ----------------------------------------------------------------------------------------
+# 7. Analisis Exploratorio de datos y visualización
+# ----------------------------------------------------------------------------------------
+
+# ----------------------------------------------------------------------------------------
+# ----------------------------------------------------------------------------------------
+# 7. Análisis Exploratorio de Datos y Visualización
+# ----------------------------------------------------------------------------------------
+print('\n' + '=' * 60)
+info('Paso 7: Realizando análisis exploratorio de datos y visualización...')
+
+# ----------------------------------------------------------------------------------------
+# 7.1 Matriz de Correlación
+# ----------------------------------------------------------------------------------------
+print(Fore.CYAN + '[INFO] Identificando columnas numéricas en los DataFrames...')
+numeric_columns_morning = df_morning.select_dtypes(include=['number']).columns
+numeric_columns_night = df_night.select_dtypes(include=['number']).columns
+
+# df_morning
+print(Fore.CYAN + '[INFO] Calculando matriz de correlación para df_morning...')
+morning_corr = df_morning[numeric_columns_morning].corr()
+print(Fore.CYAN + '[INFO] Visualizando matriz de correlación para df_morning...')
+plt.figure(figsize=(10, 8))
+sns.heatmap(morning_corr, annot=True, fmt=".2f", cmap="coolwarm", cbar=True)
+plt.title("Matriz de Correlación - Mañana")
+plt.show()
+
+# df_night
+print(Fore.CYAN + '[INFO] Calculando matriz de correlación para df_night...')
+night_corr = df_night[numeric_columns_night].corr()
+print(Fore.CYAN + '[INFO] Visualizando matriz de correlación para df_night...')
+plt.figure(figsize=(10, 8))
+sns.heatmap(night_corr, annot=True, fmt=".2f", cmap="coolwarm", cbar=True)
+plt.title("Matriz de Correlación - Noche")
+plt.show()
+
+# ----------------------------------------------------------------------------------------
+# 7.2 Histogramas
+# ----------------------------------------------------------------------------------------
+def plot_histograms(df, title):
+    numeric_cols = df.select_dtypes(include=['number']).columns
+    for col in numeric_cols:
+        if df[col].dropna().shape[0] > 0:
+            print(Fore.CYAN + f'[INFO] Generando histograma para {col} - {title}...')
+            plt.figure(figsize=(8, 4))
+            sns.histplot(df[col], kde=True, bins=20)
+            plt.title(f'Histograma de {col} - {title}')
+            plt.xlabel(col)
+            plt.ylabel('Frecuencia')
+            plt.show()
+        else:
+            print(Fore.YELLOW + f'[ADVERTENCIA] No se puede generar histograma para {col} en {title} debido a datos insuficientes.')
+
+# Aplicación de histogramas
+plot_histograms(df_morning, "Mañana")
+plot_histograms(df_night, "Noche")
+
+# ----------------------------------------------------------------------------------------
+# 7.3 Boxplots
+# ----------------------------------------------------------------------------------------
+def plot_boxplots(df, title):
+    numeric_cols = df.select_dtypes(include=['number']).columns
+    for col in numeric_cols:
+        if df[col].dropna().shape[0] > 1:
+            print(Fore.CYAN + f'[INFO] Generando boxplot para {col} - {title}...')
+            plt.figure(figsize=(8, 4))
+            sns.boxplot(x=df[col])
+            plt.title(f'Boxplot de {col} - {title}')
+            plt.xlabel(col)
+            plt.show()
+        else:
+            print(Fore.YELLOW + f'[ADVERTENCIA] No se puede generar boxplot para {col} en {title} debido a datos insuficientes.')
+
+# Aplicación de boxplots
+plot_boxplots(df_morning, "Mañana")
+plot_boxplots(df_night, "Noche")
+
+# ----------------------------------------------------------------------------------------
+# 7.4 Scatter Plots
+# ----------------------------------------------------------------------------------------
+def plot_scatter(df, x_col, y_col, title):
+    if df[x_col].dropna().shape[0] > 0 and df[y_col].dropna().shape[0] > 0:
+        print(Fore.CYAN + f'[INFO] Generando scatter plot entre {x_col} y {y_col} - {title}...')
+        plt.figure(figsize=(8, 6))
+        sns.scatterplot(data=df, x=x_col, y=y_col)
+        plt.title(f'Relación entre {x_col} y {y_col} - {title}')
+        plt.xlabel(x_col)
+        plt.ylabel(y_col)
+        plt.show()
+    else:
+        print(Fore.YELLOW + f'[ADVERTENCIA] No se puede generar scatter plot para {x_col} y {y_col} en {title} debido a datos insuficientes.')
+
+# Scatter plots de ejemplo (puedes cambiar las columnas)
+if len(numeric_columns_morning) >= 2:
+    plot_scatter(df_morning, numeric_columns_morning[0], numeric_columns_morning[1], "Mañana")
+
+if len(numeric_columns_night) >= 2:
+    plot_scatter(df_night, numeric_columns_night[0], numeric_columns_night[1], "Noche")
+
+# ----------------------------------------------------------------------------------------
+# 7.5 Pairplot 
+# ----------------------------------------------------------------------------------------
+def plot_pairplot(df, title):
+    numeric_cols = df.select_dtypes(include=['number']).columns
+    if len(numeric_cols) > 1:
+        print(Fore.CYAN + f'[INFO] Generando pairplot para múltiples variables numéricas - {title}...')
+        sns.pairplot(df[numeric_cols])
+        plt.suptitle(f'Pairplot - {title}', y=1.02)
+        plt.show()
+    else:
+        print(Fore.YELLOW + f'[ADVERTENCIA] No se puede generar pairplot para {title} debido a columnas insuficientes.')
+
+plot_pairplot(df_morning, "Mañana")
+plot_pairplot(df_night, "Noche")
+
+
+# ----------------------------------------------------------------------------------------
+# Entrenar modelo
+# ----------------------------------------------------------------------------------------
+
+# ----------------------------------------------------------------------------------------
+# Evaluar modelo
+# ----------------------------------------------------------------------------------------
