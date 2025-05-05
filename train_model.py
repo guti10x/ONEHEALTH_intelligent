@@ -7,6 +7,11 @@ from datetime import datetime, timedelta, time
 from colorama import Fore, Style, init
 import matplotlib.pyplot as plt
 import seaborn as sns
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
+from sklearn.linear_model import LinearRegression
+from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
+from sklearn.metrics import mean_squared_error, r2_score
 
 # Inicializar colorama
 init(autoreset=True)
@@ -419,8 +424,6 @@ else:
 print('\n' + '=' * 60)
 info('Paso 8.3: Escalando variables numéricas...')
 
-from sklearn.preprocessing import StandardScaler
-
 # Escalado para df_morning
 if X_morning_train is not None and X_morning_test is not None:
     print(Fore.CYAN + '[INFO] Aplicando escalado a df_morning...')
@@ -444,9 +447,155 @@ else:
     print(Fore.YELLOW + '[ADVERTENCIA] No se realizó el escalado de df_night debido a datos insuficientes o división fallida.')
 
 # ----------------------------------------------------------------------------------------
-# Entrenar modelo
+# 9. Entrenamiento y Evaluación de Modelos (df_night)
 # ----------------------------------------------------------------------------------------
+print('\n' + '=' * 60)
+info('Paso 9: Entrenando y evaluando modelos de regresión con df_night...')
+
+# Validación de datos
+if X_night is not None and y_night is not None and X_night.shape[0] > 1:
+    print(Fore.CYAN + '[INFO] Dividiendo nuevamente df_night para entrenamiento y prueba (80/20)...')
+    X_night_train, X_night_test, y_night_train, y_night_test = train_test_split(X_night, y_night, test_size=0.2, random_state=42)
+
+    print(Fore.CYAN + '[INFO] Limpiando columnas vacías o no numéricas...')
+    X_night_train = X_night_train.dropna(axis=1, how='all')
+    X_night_test = X_night_test.dropna(axis=1, how='all')
+    X_night_train = X_night_train.fillna(X_night_train.mean())
+    X_night_test = X_night_test.fillna(X_night_test.mean())
+    X_night_train = X_night_train.select_dtypes(include=['number'])
+    X_night_test = X_night_test.select_dtypes(include=['number'])
+
+    print(Fore.CYAN + '[INFO] Eliminando columnas con varianza cero...')
+    zero_var_cols = X_night_train.columns[X_night_train.std() == 0]
+    X_night_train = X_night_train.drop(columns=zero_var_cols)
+    X_night_test = X_night_test.drop(columns=zero_var_cols)
+
+    print(Fore.CYAN + '[INFO] Escalando los datos...')
+    scaler = StandardScaler()
+    X_night_train_scaled = scaler.fit_transform(X_night_train)
+    X_night_test_scaled = scaler.transform(X_night_test)
+
+    if np.isnan(X_night_train_scaled).any():
+        print(Fore.RED + '[ERROR] Se encontraron NaN en los datos escalados. Revisa el preprocesamiento.')
+    else:
+        print(Fore.GREEN + '[ÉXITO] Datos escalados correctamente. Entrenando modelos...')
+
+        models = {
+            'Linear Regression': LinearRegression(),
+            'Random Forest': RandomForestRegressor(random_state=42),
+            'Gradient Boosting': GradientBoostingRegressor(random_state=42)
+        }
+
+        # Entrenando y evaluando modelos
+        for name, model in models.items():
+            model.fit(X_night_train_scaled, y_night_train)
+            y_pred = model.predict(X_night_test_scaled)
+            mse = mean_squared_error(y_night_test, y_pred)
+            r2 = r2_score(y_night_test, y_pred)
+            print(Fore.YELLOW + f'{name} - MSE: {mse:.2f}, R²: {r2:.2f}')
+
+            # ----------------------------------------------------------------------------------------
+            # 9.1 Gráfica de comparación: Valores reales vs. predichos
+            # ----------------------------------------------------------------------------------------
+            print(Fore.CYAN + f'[INFO] Generando gráfico de Reales vs. Predichos para {name}...')
+            plt.figure(figsize=(8, 6))
+            sns.scatterplot(x=y_night_test, y=y_pred)
+            plt.plot([y_night_test.min(), y_night_test.max()], [y_night_test.min(), y_night_test.max()], 'r--')
+            plt.xlabel('Valores Reales')
+            plt.ylabel('Valores Predichos')
+            plt.title(f'Comparación: Reales vs. Predichos ({name})')
+            plt.grid(True)
+            plt.tight_layout()
+            plt.show()
+
+            # ----------------------------------------------------------------------------------------
+            # 9.2 Guardar modelo entrenado
+            # ----------------------------------------------------------------------------------------
+            print(Fore.CYAN + f'[INFO] Guardando el modelo {name} entrenado...')
+            import joblib
+            import os
+
+            # Crear carpeta si no existe
+            os.makedirs('modelos_guardados', exist_ok=True)
+
+            # Guardar modelo
+            ruta_modelo = f'modelos_guardados/{name.lower().replace(" ", "_")}_night.pkl'
+            joblib.dump(model, ruta_modelo)
+            print(Fore.CYAN + f'[INFO] Modelo {name} guardado exitosamente en: {ruta_modelo}')
+
+            # ----------------------------------------------------------------------------------------
+            # 9.3 Predicciones con nuevos datos
+            # ----------------------------------------------------------------------------------------
+            def predecir_nuevos_datos(nuevo_df, modelo):
+                """
+                Aplica el modelo entrenado para predecir valores de felicidad en nuevos datos nocturnos.
+                """
+                try:
+                    print(Fore.CYAN + '[INFO] Preparando nuevos datos para predicción...')
+                    # Procesamiento similar al entrenamiento
+                    nuevo_df = nuevo_df.select_dtypes(include=['number'])
+                    nuevo_df = nuevo_df.fillna(nuevo_df.mean())
+
+                    # Alinear columnas con las del entrenamiento
+                    nuevo_df = nuevo_df[X_night_train.columns]
+
+                    # Escalar
+                    nuevo_df_scaled = scaler.transform(nuevo_df)
+
+                    # Predecir
+                    predicciones = modelo.predict(nuevo_df_scaled)
+                    print(Fore.CYAN + '[INFO] Predicción realizada con éxito.')
+                    return predicciones
+
+                except Exception as e:
+                    print(Fore.RED + f'[ERROR] No se pudo hacer la predicción: {e}')
+                    return None
+
+else:
+    print(Fore.RED + '[ERROR] df_night no tiene suficientes datos válidos para entrenar modelos.')
+
 
 # ----------------------------------------------------------------------------------------
-# Evaluar modelo
+# 10. Validación y Subida a Firebase (df_night)
 # ----------------------------------------------------------------------------------------
+print('\n' + '=' * 60)
+info('Paso 9.X: Validando el modelo y subiendo los resultados a Firebase...')
+
+# Verificar que los datos necesarios estén definidos
+if 'X_night_train_scaled' in locals() and 'y_night_train' in locals() and \
+   'X_night_test_scaled' in locals() and 'y_night_test' in locals():
+    
+    # Definir y entrenar el modelo con todos los datos escalados
+    best_model = RandomForestRegressor(random_state=42)
+    best_model.fit(X_night_train_scaled, y_night_train)
+    
+    # Realizar predicciones sobre el conjunto de prueba
+    y_pred = best_model.predict(X_night_test_scaled)
+    
+    # Calcular métricas de rendimiento
+    mse = mean_squared_error(y_night_test, y_pred)
+    r2 = r2_score(y_night_test, y_pred)
+    
+    # Mostrar resultados en la consola para depuración
+    print(Fore.GREEN + f"Resultados para 'noche' con RandomForestRegressor:")
+    print(Fore.GREEN + f"  MSE: {mse:.2f}")
+    print(Fore.GREEN + f"  R²: {r2:.2f}")
+    
+    # Crear un diccionario con los resultados
+    results = {
+        'night': {
+            'model': 'Random Forest',
+            'mse': mse,
+            'r2': r2
+        }
+    }
+    
+    # Subir los resultados a Firebase con manejo de excepciones
+    try:
+        db.collection('resultados').document('modelo_noche').set(results)
+        print(Fore.GREEN + "Resultados subidos a Firebase exitosamente.")
+    except Exception as e:
+        print(Fore.RED + f"Error al subir resultados a Firebase: {e}")
+else:
+    print(Fore.RED + "[ERROR] Los datos de entrenamiento o prueba no están definidos.")
+
