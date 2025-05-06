@@ -12,6 +12,29 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.linear_model import LinearRegression
 from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
 from sklearn.metrics import mean_squared_error, r2_score
+import joblib
+import os
+
+def save_dataframe(df, filename, label):
+    try:
+        output_dir = './output/'
+        os.makedirs(output_dir, exist_ok=True)
+        filepath = os.path.join(output_dir, filename)
+        df.to_csv(filepath, index=False, encoding='utf-8-sig')
+        success(f'DataFrame "{label}" guardado exitosamente en {filepath} ✔')
+        print(Fore.YELLOW + f'[INFO] Número de instancias guardadas de formularios de {label}": {len(df)}')
+    except Exception as e:
+        error(f'Error al guardar DataFrame "{label}": {e}')
+
+def check_non_null_columns(df, nombre_df):
+    null_counts = df.isnull().sum()
+    valid_columns = null_counts[null_counts < len(df)].index.tolist()
+    if valid_columns:
+        print(Fore.YELLOW + f'[INFO] Columnas con al menos un valor no nulo en {nombre_df}:')
+        for col in valid_columns:
+            print(f'   - {col} ({len(df) - null_counts[col]} valores no nulos)')
+    else:
+        print(Fore.RED + f'[ALERTA] Todas las columnas en {nombre_df} están completamente vacías.')
 
 # Inicializar colorama
 init(autoreset=True)
@@ -72,7 +95,7 @@ if formularios:
     df = pd.DataFrame(formularios)
 
     # Convertir recorded_at a datetime y ajustar zona horaria
-    print(Fore.CYAN + '[INFO] Ajustando zona horaria de recorded_at...')
+    print(Fore.CYAN + '\n[INFO] Ajustando zona horaria de recorded_at...')
     try:
         df['recorded_at'] = pd.to_datetime(df['recorded_at']).dt.tz_convert('Europe/Madrid')
         success('Fechas convertidas y ajustadas a zona horaria Europe/Madrid ✔')
@@ -80,14 +103,12 @@ if formularios:
         error(f'Error al convertir las fechas: {e}')
 
     # Función para clasificar el período
-    print(Fore.CYAN + '[INFO] Clasificando formularios en "mañana" y "noche"...')
+    print(Fore.CYAN + '\n[INFO] Clasificando formularios en "mañana" y "noche"...')
     def classify_period(row):
-        hour = row['recorded_at'].hour
-        minute = row['recorded_at'].minute
-        if time(6, 0) <= time(hour, minute) < time(19, 0):
-            return 'mañana'
-        else:
+        if 'happinessLevel' in row and pd.notna(row['happinessLevel']):
             return 'noche'
+        else:
+            return 'mañana'
 
     # Aplicar clasificación
     df['period'] = df.apply(classify_period, axis=1)
@@ -96,14 +117,23 @@ if formularios:
     df_morning = df[df['period'] == 'mañana'].copy()
     df_night = df[df['period'] == 'noche'].copy()
 
+    # Mostrar conteo
+    print(Fore.YELLOW + f'[INFO] Formularios de mañana: {len(df_morning)}')
+    print(Fore.YELLOW + f'[INFO] Formularios de noche: {len(df_night)}')
+
     if not df_morning.empty and not df_night.empty:
         success('Formularios clasificados y DataFrames creados correctamente ✔')
     else:
         warning('Algunos de los DataFrames "mañana" o "noche" están vacíos.')
-
-
 else:
     warning('No se encontraron formularios para procesar.')
+
+# Verificar que hay suficientes datos no nulos por columna
+print(Fore.CYAN + '\n[INFO] Verificando atributos con datos no nulos...')
+
+check_non_null_columns(df_morning, 'df_morning')
+check_non_null_columns(df_night, 'df_night')
+
 
 # ----------------------------------------------------------------------------------------
 # 5. Procesamiento de datos:
@@ -112,29 +142,55 @@ print('\n' + '=' * 60)
 info('Paso 5: Procesando datos...')
 
 for df_label, df_ref in [('mañana', df_morning), ('noche', df_night)]:
-    print(Fore.CYAN + f'\n[INFO] Procesando formularios de: {df_label.upper()}')
+    print('\n' + '-' * 100)
+    print(Fore.BLUE + f'\n[INFO] Procesando formularios de: {df_label.upper()}')
 
     # -----------------------------------------------------------------------------
     # 5.1 Eliminar Columnas No Relevantes
     # -----------------------------------------------------------------------------
+    print(Fore.CYAN + f'\n[INFO] Eliminando columnas no relevantes...')
     columns_to_drop = ['id_user', 'recorded_at', 'period']
     df_ref.drop(columns=columns_to_drop, errors='ignore', inplace=True)
+    if all(col not in df_ref.columns for col in columns_to_drop):
+        success(f'[{df_label.upper()}] Columnas no relevantes eliminadas correctamente ✔')
+    else:
+        warning(f'[{df_label.upper()}] Algunas columnas no relevantes no se pudieron eliminar.')
 
     # -----------------------------------------------------------------------------
     # 5.2 Eliminar Filas con Valores Nulos
     # -----------------------------------------------------------------------------
+    print(Fore.CYAN + f'\n[INFO] Eliminando filas con valores nulos...')
     critical_columns = ['sadnessLevel', 'happinessLevel', 'avgEnergyLevel']
+    initial_row_count = len(df_ref)
     df_ref.dropna(subset=critical_columns, inplace=True)
+    final_row_count = len(df_ref)
+    if final_row_count < initial_row_count:
+        success(f'[{df_label.upper()}] Filas con valores nulos eliminadas correctamente ✔ ({initial_row_count - final_row_count} filas eliminadas)')
+    else:
+        info(f'[{df_label.upper()}] No se encontraron filas con valores nulos en las columnas críticas.')
+
 
     # -----------------------------------------------------------------------------
     # 5.3 Convertir Variables Categóricas a Numéricas
     # -----------------------------------------------------------------------------
-    df_ref = pd.get_dummies(df_ref, columns=['country', 'state', 'city'], drop_first=True)
+    print(Fore.CYAN + f'\n[INFO] Convirtiendo variables categóricas a numéricas mediante one-hot encoding...')
+    try:
+        df_ref = pd.get_dummies(df_ref, columns=['country', 'state', 'city'], drop_first=True)
+        success(f'[{df_label.upper()}] Variables categóricas convertidas correctamente a numéricas ✔')
+    except Exception as e:
+        error(f'[{df_label.upper()}] Error al convertir variables categóricas: {e}')
 
     # -----------------------------------------------------------------------------
     # 5.4 Detectar y Eliminar Duplicados
     # -----------------------------------------------------------------------------
+    print(Fore.CYAN + f'\n[INFO] Eliminando duplicados en el DataFrame {df_label.upper()}...')
+    initial_row_count = len(df_ref)
     df_ref.drop_duplicates(inplace=True)
+    final_row_count = len(df_ref)
+    if final_row_count < initial_row_count:
+        success(f'[{df_label.upper()}] Duplicados eliminados correctamente ✔ ({initial_row_count - final_row_count} filas eliminadas)')
+    else:
+        info(f'[{df_label.upper()}] No se encontraron duplicados para eliminar.')
 
     # -----------------------------------------------------------------------------
     # 5.5 Análisis y Manejo de Outliers
@@ -147,10 +203,17 @@ for df_label, df_ref in [('mañana', df_morning), ('noche', df_night)]:
         upper_bound = Q3 + 1.5 * IQR
         return df[(df[column] >= lower_bound) & (df[column] <= upper_bound)]
 
+    print(Fore.CYAN + f'\n[INFO] Eliminado Outliers {df_label.upper()}...')
     numeric_cols = ['sadnessLevel', 'avgEnergyLevel', 'maxAnxietyLevel', 'happinessLevel']
     for col in numeric_cols:
         if col in df_ref.columns:
+            initial_row_count = len(df_ref)
             df_ref = remove_outliers(df_ref, col)
+            final_row_count = len(df_ref)
+            removed_count = initial_row_count - final_row_count
+            success(f'[{df_label.upper()}] Outliers eliminados en columna "{col}". Filas eliminadas: {removed_count}')
+            success(f'[{df_label.upper()}] Outliers procesados correctamente para columna "{col}" ✔')
+
 
     # -----------------------------------------------------------------------------
     # 5.5 Crear Nuevas Variables Calculadas
@@ -159,6 +222,7 @@ for df_label, df_ref in [('mañana', df_morning), ('noche', df_night)]:
     # ----------------------------------------------
     # 5.5.1 Calcular Tiempo Total de Redes Sociales 
     # ----------------------------------------------
+    print(Fore.CYAN + f'\n[INFO] Calculando el tiempo total invertido en redes sociales...')
     if 'instagram_time' in df_ref.columns and 'tiktok_time' in df_ref.columns:
         df_ref['total_social_media_time'] = df_ref['instagram_time'] + df_ref['tiktok_time']
         success(f'[{df_label.upper()}] Variable del tiempo total invertido en redes sociales creada correctamente ✔')
@@ -169,6 +233,7 @@ for df_label, df_ref in [('mañana', df_morning), ('noche', df_night)]:
     # 5.5.2 Extraer app más usada, segunda más usada y tercera más usada
     # ----------------------------------------------
     if 'final_ranking' in df_ref.columns:
+        print(Fore.CYAN + f'\n[INFO] Extrayendo las aplicaciones más usadas del ranking final...')
 
         def extract_top_apps(ranking_string, position):
             try:
@@ -190,6 +255,7 @@ for df_label, df_ref in [('mañana', df_morning), ('noche', df_night)]:
     mood_cols = ['happinessLevel', 'sadnessLevel', 'apathyLevel', 'avgAnxietyLevel', 'avgEnergyLevel']
     existing_mood_cols = [col for col in mood_cols if col in df_ref.columns]
     if existing_mood_cols:
+        print(Fore.CYAN + f'\n[INFO] Columnas utilizadas para el cálculo: {existing_mood_cols}')
         df_ref['average_mood'] = df_ref[existing_mood_cols].mean(axis=1)
         success(f'[{df_label.upper()}] Variable estado de ánimo promedio creada correctamente ✔')
     else:
@@ -198,6 +264,7 @@ for df_label, df_ref in [('mañana', df_morning), ('noche', df_night)]:
     # ----------------------------------------------
     # 5.5.4 Calcular cantidad de horas de sueño
     # ----------------------------------------------
+    print(Fore.CYAN + f'\n[INFO] Calculando la duración del sueño...')
     if 'sleep_time' in df_ref.columns and 'wake_up_time' in df_ref.columns:
         try:
             df_ref['sleep_time'] = pd.to_datetime(df_ref['sleep_time'])
@@ -213,25 +280,12 @@ for df_label, df_ref in [('mañana', df_morning), ('noche', df_night)]:
 # 6. Guardar DataFrames procedo resultantes
 # ----------------------------------------------------------------------------------------
 print('\n' + '=' * 60)
-info('Paso 6: Guardando DataFrames en archivos CSV...')
+info('Paso 6: Guardando DataFrames en archivos CSV y mostrando número de instancias...')
 
-try:
-    df_morning.to_csv('./output/df_morning.csv', index=False, encoding='utf-8-sig')
-    success('DataFrame de mañana guardado exitosamente en ./output/df_morning.csv ✔')
-except Exception as e:
-    error(f'Error al guardar DataFrame "mañana": {e}')
+# Guardar DataFrames y mostrar número de instancias
+save_dataframe(df_morning, 'df_morning.csv', 'mañana')
+save_dataframe(df_night, 'df_night.csv', 'noche')
 
-try:
-    df_night.to_csv('./output/df_night.csv', index=False, encoding='utf-8-sig')
-    success('DataFrame de noche guardado exitosamente en ./output/df_night.csv ✔')
-except Exception as e:
-    error(f'Error al guardar DataFrame "noche": {e}')
-
-# ----------------------------------------------------------------------------------------
-# 7. Analisis Exploratorio de datos y visualización
-# ----------------------------------------------------------------------------------------
-
-# ----------------------------------------------------------------------------------------
 # ----------------------------------------------------------------------------------------
 # 7. Análisis Exploratorio de Datos y Visualización
 # ----------------------------------------------------------------------------------------
@@ -241,36 +295,34 @@ info('Paso 7: Realizando análisis exploratorio de datos y visualización...')
 # ----------------------------------------------------------------------------------------
 # 7.1 Matriz de Correlación
 # ----------------------------------------------------------------------------------------
-print(Fore.CYAN + '[INFO] Identificando columnas numéricas en los DataFrames...')
+#Identificamos columnas numéricas en los DataFrames
 numeric_columns_morning = df_morning.select_dtypes(include=['number']).columns
 numeric_columns_night = df_night.select_dtypes(include=['number']).columns
 
 # df_morning
-print(Fore.CYAN + '[INFO] Calculando matriz de correlación para df_morning...')
+print(Fore.CYAN + '[INFO][MAÑANA] Visualizando matriz de correlación para df_morning...')
 morning_corr = df_morning[numeric_columns_morning].corr()
-print(Fore.CYAN + '[INFO] Visualizando matriz de correlación para df_morning...')
 plt.figure(figsize=(10, 8))
 sns.heatmap(morning_corr, annot=True, fmt=".2f", cmap="coolwarm", cbar=True)
-plt.title("Matriz de Correlación - Mañana")
+plt.title("Visualizando Matriz de Correlación - Mañana")
 plt.show()
 
 # df_night
-print(Fore.CYAN + '[INFO] Calculando matriz de correlación para df_night...')
+print(Fore.CYAN + '[INFO][NOCHE] Visualizando matriz de correlación para df_night...')
 night_corr = df_night[numeric_columns_night].corr()
-print(Fore.CYAN + '[INFO] Visualizando matriz de correlación para df_night...')
 plt.figure(figsize=(10, 8))
 sns.heatmap(night_corr, annot=True, fmt=".2f", cmap="coolwarm", cbar=True)
-plt.title("Matriz de Correlación - Noche")
+plt.title("Visualizando Matriz de Correlación - Noche")
 plt.show()
 
 # ----------------------------------------------------------------------------------------
 # 7.2 Histogramas
-# ----------------------------------------------------------------------------------------
+# ---------------------------------------------------------------------------------------
 def plot_histograms(df, title):
     numeric_cols = df.select_dtypes(include=['number']).columns
     for col in numeric_cols:
         if df[col].dropna().shape[0] > 0:
-            print(Fore.CYAN + f'[INFO] Generando histograma para {col} - {title}...')
+            print(Fore.CYAN + f'[INFO][{title.upper()}] VISUALIZANDO HISTOGRAMA PARA {col.upper()}...')
             plt.figure(figsize=(8, 4))
             sns.histplot(df[col], kde=True, bins=20)
             plt.title(f'Histograma de {col} - {title}')
@@ -278,7 +330,7 @@ def plot_histograms(df, title):
             plt.ylabel('Frecuencia')
             plt.show()
         else:
-            print(Fore.YELLOW + f'[ADVERTENCIA] No se puede generar histograma para {col} en {title} debido a datos insuficientes.')
+            print(Fore.YELLOW + f'[ADVERTENCIA][{title.upper()}] No se puede generar histograma para {col} en {title} debido a datos insuficientes.')
 
 # Aplicación de histogramas
 plot_histograms(df_morning, "Mañana")
@@ -291,14 +343,14 @@ def plot_boxplots(df, title):
     numeric_cols = df.select_dtypes(include=['number']).columns
     for col in numeric_cols:
         if df[col].dropna().shape[0] > 1:
-            print(Fore.CYAN + f'[INFO] Generando boxplot para {col} - {title}...')
+            print(Fore.CYAN + f'[INFO][{title.upper()}] Visualizando boxplot para {col}...')
             plt.figure(figsize=(8, 4))
             sns.boxplot(x=df[col])
             plt.title(f'Boxplot de {col} - {title}')
             plt.xlabel(col)
             plt.show()
         else:
-            print(Fore.YELLOW + f'[ADVERTENCIA] No se puede generar boxplot para {col} en {title} debido a datos insuficientes.')
+            print(Fore.YELLOW + f'[ADVERTENCIA][{title.upper()}] No se puede generar boxplot para {col} en {title} debido a datos insuficientes.')
 
 # Aplicación de boxplots
 plot_boxplots(df_morning, "Mañana")
@@ -309,7 +361,7 @@ plot_boxplots(df_night, "Noche")
 # ----------------------------------------------------------------------------------------
 def plot_scatter(df, x_col, y_col, title):
     if df[x_col].dropna().shape[0] > 0 and df[y_col].dropna().shape[0] > 0:
-        print(Fore.CYAN + f'[INFO] Generando scatter plot entre {x_col} y {y_col} - {title}...')
+        print(Fore.CYAN + f'[INFO][{title.upper()}] Visualizando scatter plot entre {x_col} y {y_col}...')
         plt.figure(figsize=(8, 6))
         sns.scatterplot(data=df, x=x_col, y=y_col)
         plt.title(f'Relación entre {x_col} y {y_col} - {title}')
@@ -317,7 +369,7 @@ def plot_scatter(df, x_col, y_col, title):
         plt.ylabel(y_col)
         plt.show()
     else:
-        print(Fore.YELLOW + f'[ADVERTENCIA] No se puede generar scatter plot para {x_col} y {y_col} en {title} debido a datos insuficientes.')
+        print(Fore.YELLOW + f'[ADVERTENCIA][{title.upper()}] No se puede generar scatter plot para {x_col} y {y_col} en {title} debido a datos insuficientes.')
 
 # Scatter plots de ejemplo (puedes cambiar las columnas)
 if len(numeric_columns_morning) >= 2:
@@ -332,12 +384,12 @@ if len(numeric_columns_night) >= 2:
 def plot_pairplot(df, title):
     numeric_cols = df.select_dtypes(include=['number']).columns
     if len(numeric_cols) > 1:
-        print(Fore.CYAN + f'[INFO] Generando pairplot para múltiples variables numéricas - {title}...')
+        print(Fore.CYAN + f'[INFO][{title.upper()}] Generando pairplot para múltiples variables numéricas...')
         sns.pairplot(df[numeric_cols])
         plt.suptitle(f'Pairplot - {title}', y=1.02)
         plt.show()
     else:
-        print(Fore.YELLOW + f'[ADVERTENCIA] No se puede generar pairplot para {title} debido a columnas insuficientes.')
+        print(Fore.YELLOW + f'[ADVERTENCIA][{title.upper()}] No se puede generar pairplot para {title} debido a columnas insuficientes.')
 
 plot_pairplot(df_morning, "Mañana")
 plot_pairplot(df_night, "Noche")
@@ -351,11 +403,12 @@ info('Paso 8: Preparando los datos para entrenamiento y prueba...')
 from sklearn.model_selection import train_test_split
 
 # ----------------------------------------------------------------------------------------
-# 8.1 División de df_morning
+# 8.1 División de df_morning en conjuntos de entrenamiento y prueba
 # ----------------------------------------------------------------------------------------
+print('\n' + '-' * 100)
 print(Fore.CYAN + '[INFO] Verificando columnas y dimensiones de df_morning...')
-print("Dimensiones de df_morning:", df_morning.shape)
-print("Columnas de df_morning:", df_morning.columns)
+print(Fore.YELLOW + '[INFO] Dimensiones de df_morning:', df_morning.shape)
+print(Fore.YELLOW + '[INFO] Columnas de df_morning:', df_morning.columns)
 
 numeric_cols_morning = df_morning.select_dtypes(include=['number']).columns
 
@@ -365,9 +418,6 @@ if len(numeric_cols_morning) <= 1 and 'happinessLevel' in numeric_cols_morning:
 else:
     X_morning = df_morning.select_dtypes(include=['number']).drop(columns=['happinessLevel'], errors='ignore')
     y_morning = df_morning['happinessLevel'] if 'happinessLevel' in df_morning.columns else None
-
-    print(Fore.CYAN + "Dimensiones de X_morning:", X_morning.shape)
-    print(Fore.CYAN + "Dimensiones de y_morning:", y_morning.shape)
 
     if X_morning.shape[0] <= 1:
         print(Fore.RED + "[ERROR] df_morning tiene solo una fila o está vacío. No se puede dividir.")
@@ -380,16 +430,23 @@ else:
         X_morning_train, X_morning_test, y_morning_train, y_morning_test = train_test_split(
             X_morning, y_morning, test_size=0.2, random_state=42
         )
-        print(Fore.GREEN + '[ÉXITO] División de df_morning realizada con éxito:')
-        print(" - X_morning_train:", X_morning_train.shape)
-        print(" - X_morning_test :", X_morning_test.shape)
+        print(Fore.GREEN + '[SUCCES] División de df_morning realizada con éxito:')
+        print(Fore.YELLOW + f"[INFO] Tamaño del conjunto de entrenamiento: {X_morning_train.shape}")
+        print(Fore.YELLOW + f"[INFO] Tamaño del conjunto de prueba: {X_morning_test.shape}")
+
+        # Guardar DataFrames de entrenamiento y test
+        print(Fore.CYAN + '[INFO] Guardando conjuntos de entrenamiento y prueba en archivos CSV...')
+        save_dataframe(X_morning_train, 'X_morning_train.csv', 'mañana')
+        save_dataframe(X_morning_test, 'X_morning_test.csv', 'noche')
+        print(Fore.GREEN + '[SUCCESS] Conjuntos de entrenamiento y prueba guardados exitosamente.')
 
 # ----------------------------------------------------------------------------------------
 # 8.2 División de df_night
 # ----------------------------------------------------------------------------------------
-print(Fore.CYAN + '\n[INFO] Verificando columnas y dimensiones de df_night...')
-print("Dimensiones de df_night:", df_night.shape)
-print("Columnas de df_night:", df_night.columns)
+print('\n' + '-' * 100)
+print(Fore.CYAN + '[INFO] Verificando columnas y dimensiones de df_night...')
+print(Fore.YELLOW + "Dimensiones de df_night:", df_night.shape)
+print(Fore.YELLOW + "Columnas de df_night:", df_night.columns)
 
 numeric_cols_night = df_night.select_dtypes(include=['number']).columns
 
@@ -399,9 +456,6 @@ if len(numeric_cols_night) <= 1 and 'happinessLevel' in numeric_cols_night:
 else:
     X_night = df_night.select_dtypes(include=['number']).drop(columns=['happinessLevel'], errors='ignore')
     y_night = df_night['happinessLevel'] if 'happinessLevel' in df_night.columns else None
-
-    print(Fore.CYAN + "Dimensiones de X_night:", X_night.shape)
-    print(Fore.CYAN + "Dimensiones de y_night:", y_night.shape)
 
     if X_night.shape[0] <= 1:
         print(Fore.RED + "[ERROR] df_night tiene solo una fila o está vacío. No se puede dividir.")
@@ -414,71 +468,81 @@ else:
         X_night_train, X_night_test, y_night_train, y_night_test = train_test_split(
             X_night, y_night, test_size=0.2, random_state=42
         )
-        print(Fore.GREEN + '[ÉXITO] División de df_night realizada con éxito:')
-        print(" - X_night_train:", X_night_train.shape)
-        print(" - X_night_test :", X_night_test.shape)
+        print(Fore.GREEN + '[SUCCESS] División de df_night realizada con éxito:')
+        print(Fore.YELLOW + "[INFO] Tamaño del conjunto de entrenamiento:", X_night_train.shape)
+        print(Fore.YELLOW + "[INFO] Tamaño del conjunto de prueba :", X_night_test.shape)
+
+        # Guardar DataFrames de entrenamiento y test
+        print(Fore.CYAN + '[INFO] Guardando conjuntos de entrenamiento y prueba en archivos CSV...')
+        save_dataframe(X_night_train, 'X_night_train.csv', 'mañana')
+        save_dataframe(X_night_test, 'X_night_test.csv', 'noche')
+        print(Fore.GREEN + '[SUCCESS] Conjuntos de entrenamiento y prueba guardados exitosamente.')
 
 # ----------------------------------------------------------------------------------------
 # 9 Escalado de datos numéricos
 # ----------------------------------------------------------------------------------------
 print('\n' + '=' * 60)
-info('Paso 8.3: Escalando variables numéricas...')
+info('Paso 9: Escalando variables numéricas...')
 
 # Escalado para df_morning
+print(Fore.CYAN + '\n[INFO][MAÑANA] Aplicando escalado a df_morning...')
 if X_morning_train is not None and X_morning_test is not None:
-    print(Fore.CYAN + '[INFO] Aplicando escalado a df_morning...')
     scaler_morning = StandardScaler()
     X_morning_train_scaled = scaler_morning.fit_transform(X_morning_train)
     X_morning_test_scaled = scaler_morning.transform(X_morning_test)
-    print(Fore.GREEN + '[ÉXITO] Escalado de df_morning completado.')
+    print(Fore.GREEN + '[SUCCESS][MAÑANA] Escalado de df_morning completado.')
 else:
     X_morning_train_scaled, X_morning_test_scaled = None, None
-    print(Fore.YELLOW + '[ADVERTENCIA] No se realizó el escalado de df_morning debido a datos insuficientes o división fallida.')
+    print(Fore.YELLOW + '[ADVERTENCIA][MAÑANA] No se realizó el escalado de df_morning debido a datos insuficientes o división fallida.')
 
 # Escalado para df_night
+print(Fore.CYAN + '\n[INFO][NOCHE] Aplicando escalado a df_night...')
 if X_night_train is not None and X_night_test is not None:
-    print(Fore.CYAN + '[INFO] Aplicando escalado a df_night...')
     scaler_night = StandardScaler()
     X_night_train_scaled = scaler_night.fit_transform(X_night_train)
     X_night_test_scaled = scaler_night.transform(X_night_test)
-    print(Fore.GREEN + '[ÉXITO] Escalado de df_night completado.')
+    print(Fore.GREEN + '[SUCCESS][NOCHE] Escalado de df_night completado.')
 else:
     X_night_train_scaled, X_night_test_scaled = None, None
-    print(Fore.YELLOW + '[ADVERTENCIA] No se realizó el escalado de df_night debido a datos insuficientes o división fallida.')
+    print(Fore.YELLOW + '[ADVERTENCIA][NOCHE] No se realizó el escalado de df_night debido a datos insuficientes o división fallida.')
 
 # ----------------------------------------------------------------------------------------
-# 9. Entrenamiento y Evaluación de Modelos (df_night)
+# 10. Entrenamiento de Modelos
 # ----------------------------------------------------------------------------------------
 print('\n' + '=' * 60)
-info('Paso 9: Entrenando y evaluando modelos de regresión con df_night...')
+info('Paso 10: Entrenando modelos con formularios de noche..')
 
 # Validación de datos
 if X_night is not None and y_night is not None and X_night.shape[0] > 1:
-    print(Fore.CYAN + '[INFO] Dividiendo nuevamente df_night para entrenamiento y prueba (80/20)...')
+    print(Fore.CYAN + '\n[INFO] Dividiendo df_night para entrenamiento y prueba (80/20)...')
     X_night_train, X_night_test, y_night_train, y_night_test = train_test_split(X_night, y_night, test_size=0.2, random_state=42)
 
-    print(Fore.CYAN + '[INFO] Limpiando columnas vacías o no numéricas...')
+    print(Fore.CYAN + '\n[INFO] Limpiando columnas vacías o no numéricas...')
     X_night_train = X_night_train.dropna(axis=1, how='all')
     X_night_test = X_night_test.dropna(axis=1, how='all')
     X_night_train = X_night_train.fillna(X_night_train.mean())
     X_night_test = X_night_test.fillna(X_night_test.mean())
     X_night_train = X_night_train.select_dtypes(include=['number'])
     X_night_test = X_night_test.select_dtypes(include=['number'])
+    success('Limpieza de columnas vacías o no numéricas realizada correctamente.')
 
-    print(Fore.CYAN + '[INFO] Eliminando columnas con varianza cero...')
+    print(Fore.CYAN + '\n[INFO] Eliminando columnas con varianza cero...')
     zero_var_cols = X_night_train.columns[X_night_train.std() == 0]
     X_night_train = X_night_train.drop(columns=zero_var_cols)
     X_night_test = X_night_test.drop(columns=zero_var_cols)
+    if zero_var_cols.empty:
+        print(Fore.YELLOW + '[INFO] No se encontraron columnas con varianza cero para eliminar.')
+    else:
+        success(f'Se eliminaron columnas con varianza cero: {list(zero_var_cols)} ✔')
 
-    print(Fore.CYAN + '[INFO] Escalando los datos...')
+    print(Fore.CYAN + '\n[INFO] Escalando los datos...')
     scaler = StandardScaler()
     X_night_train_scaled = scaler.fit_transform(X_night_train)
     X_night_test_scaled = scaler.transform(X_night_test)
-
     if np.isnan(X_night_train_scaled).any():
         print(Fore.RED + '[ERROR] Se encontraron NaN en los datos escalados. Revisa el preprocesamiento.')
     else:
-        print(Fore.GREEN + '[ÉXITO] Datos escalados correctamente. Entrenando modelos...')
+        print(Fore.GREEN + '[SUCCESS] Datos escalados correctamente. Entrenando modelos...')
 
         models = {
             'Linear Regression': LinearRegression(),
@@ -487,17 +551,22 @@ if X_night is not None and y_night is not None and X_night.shape[0] > 1:
         }
 
         # Entrenando y evaluando modelos
+        print(Fore.CYAN + '\n[INFO] Entrenando modelos...')
         for name, model in models.items():
+            print('\n' + '-' * 60)
+            print(Fore.LIGHTMAGENTA_EX + f'[INFO] Entrenando con el modelo {name}...')
             model.fit(X_night_train_scaled, y_night_train)
             y_pred = model.predict(X_night_test_scaled)
             mse = mean_squared_error(y_night_test, y_pred)
             r2 = r2_score(y_night_test, y_pred)
-            print(Fore.YELLOW + f'{name} - MSE: {mse:.2f}, R²: {r2:.2f}')
+            success(f'Modelo entrenado correctamnete')
+            print(Fore.YELLOW + f' - MSE: {mse:.2f}')
+            print(Fore.YELLOW + f' - R²: {r2:.2f}')
 
             # ----------------------------------------------------------------------------------------
             # 9.1 Gráfica de comparación: Valores reales vs. predichos
             # ----------------------------------------------------------------------------------------
-            print(Fore.CYAN + f'[INFO] Generando gráfico de Reales vs. Predichos para {name}...')
+            print(Fore.CYAN + f'\n[INFO] Generando gráfico de Reales vs. Predichos para {name}...')
             plt.figure(figsize=(8, 6))
             sns.scatterplot(x=y_night_test, y=y_pred)
             plt.plot([y_night_test.min(), y_night_test.max()], [y_night_test.min(), y_night_test.max()], 'r--')
@@ -512,8 +581,6 @@ if X_night is not None and y_night is not None and X_night.shape[0] > 1:
             # 9.2 Guardar modelo entrenado
             # ----------------------------------------------------------------------------------------
             print(Fore.CYAN + f'[INFO] Guardando el modelo {name} entrenado...')
-            import joblib
-            import os
 
             # Crear carpeta si no existe
             os.makedirs('modelos_guardados', exist_ok=True)
@@ -523,79 +590,11 @@ if X_night is not None and y_night is not None and X_night.shape[0] > 1:
             joblib.dump(model, ruta_modelo)
             print(Fore.CYAN + f'[INFO] Modelo {name} guardado exitosamente en: {ruta_modelo}')
 
-            # ----------------------------------------------------------------------------------------
-            # 9.3 Predicciones con nuevos datos
-            # ----------------------------------------------------------------------------------------
-            def predecir_nuevos_datos(nuevo_df, modelo):
-                """
-                Aplica el modelo entrenado para predecir valores de felicidad en nuevos datos nocturnos.
-                """
-                try:
-                    print(Fore.CYAN + '[INFO] Preparando nuevos datos para predicción...')
-                    # Procesamiento similar al entrenamiento
-                    nuevo_df = nuevo_df.select_dtypes(include=['number'])
-                    nuevo_df = nuevo_df.fillna(nuevo_df.mean())
-
-                    # Alinear columnas con las del entrenamiento
-                    nuevo_df = nuevo_df[X_night_train.columns]
-
-                    # Escalar
-                    nuevo_df_scaled = scaler.transform(nuevo_df)
-
-                    # Predecir
-                    predicciones = modelo.predict(nuevo_df_scaled)
-                    print(Fore.CYAN + '[INFO] Predicción realizada con éxito.')
-                    return predicciones
-
-                except Exception as e:
-                    print(Fore.RED + f'[ERROR] No se pudo hacer la predicción: {e}')
-                    return None
-
 else:
     print(Fore.RED + '[ERROR] df_night no tiene suficientes datos válidos para entrenar modelos.')
 
 
 # ----------------------------------------------------------------------------------------
-# 10. Validación y Subida a Firebase (df_night)
+# 11. Validación y Subida a Firebase (df_night)
 # ----------------------------------------------------------------------------------------
-print('\n' + '=' * 60)
-info('Paso 9.X: Validando el modelo y subiendo los resultados a Firebase...')
-
-# Verificar que los datos necesarios estén definidos
-if 'X_night_train_scaled' in locals() and 'y_night_train' in locals() and \
-   'X_night_test_scaled' in locals() and 'y_night_test' in locals():
-    
-    # Definir y entrenar el modelo con todos los datos escalados
-    best_model = RandomForestRegressor(random_state=42)
-    best_model.fit(X_night_train_scaled, y_night_train)
-    
-    # Realizar predicciones sobre el conjunto de prueba
-    y_pred = best_model.predict(X_night_test_scaled)
-    
-    # Calcular métricas de rendimiento
-    mse = mean_squared_error(y_night_test, y_pred)
-    r2 = r2_score(y_night_test, y_pred)
-    
-    # Mostrar resultados en la consola para depuración
-    print(Fore.GREEN + f"Resultados para 'noche' con RandomForestRegressor:")
-    print(Fore.GREEN + f"  MSE: {mse:.2f}")
-    print(Fore.GREEN + f"  R²: {r2:.2f}")
-    
-    # Crear un diccionario con los resultados
-    results = {
-        'night': {
-            'model': 'Random Forest',
-            'mse': mse,
-            'r2': r2
-        }
-    }
-    
-    # Subir los resultados a Firebase con manejo de excepciones
-    try:
-        db.collection('resultados').document('modelo_noche').set(results)
-        print(Fore.GREEN + "Resultados subidos a Firebase exitosamente.")
-    except Exception as e:
-        print(Fore.RED + f"Error al subir resultados a Firebase: {e}")
-else:
-    print(Fore.RED + "[ERROR] Los datos de entrenamiento o prueba no están definidos.")
 
