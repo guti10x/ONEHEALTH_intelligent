@@ -465,9 +465,7 @@ else:
         X_night = X_night.fillna(X_night.mean())
 
         print(Fore.CYAN + '[INFO] Dividiendo df_night en conjuntos de entrenamiento y prueba...')
-        X_night_train, X_night_test, y_night_train, y_night_test = train_test_split(
-            X_night, y_night, test_size=0.2, random_state=42
-        )
+        X_night_train, X_night_test, y_night_train, y_night_test = train_test_split(X_night, y_night, test_size=0.2, random_state=42)
         print(Fore.GREEN + '[SUCCESS] División de df_night realizada con éxito:')
         print(Fore.YELLOW + "[INFO] Tamaño del conjunto de entrenamiento:", X_night_train.shape)
         print(Fore.YELLOW + "[INFO] Tamaño del conjunto de prueba :", X_night_test.shape)
@@ -479,57 +477,28 @@ else:
         print(Fore.GREEN + '[SUCCESS] Conjuntos de entrenamiento y prueba guardados exitosamente.')
 
 # ----------------------------------------------------------------------------------------
-# 9 Escalado de datos numéricos
+# 9. Entrenamiento de Modelos
 # ----------------------------------------------------------------------------------------
 print('\n' + '=' * 60)
-info('Paso 9: Escalando variables numéricas...')
+info('Paso 9: Entrenando modelos con formularios de noche y mañana...')
 
-# Escalado para df_morning
-print(Fore.CYAN + '\n[INFO][MAÑANA] Aplicando escalado a df_morning...')
-if X_morning_train is not None and X_morning_test is not None:
-    scaler_morning = StandardScaler()
-    X_morning_train_scaled = scaler_morning.fit_transform(X_morning_train)
-    X_morning_test_scaled = scaler_morning.transform(X_morning_test)
-    print(Fore.GREEN + '[SUCCESS][MAÑANA] Escalado de df_morning completado.')
-else:
-    X_morning_train_scaled, X_morning_test_scaled = None, None
-    print(Fore.YELLOW + '[ADVERTENCIA][MAÑANA] No se realizó el escalado de df_morning debido a datos insuficientes o división fallida.')
-
-# Escalado para df_night
-print(Fore.CYAN + '\n[INFO][NOCHE] Aplicando escalado a df_night...')
-if X_night_train is not None and X_night_test is not None:
-    scaler_night = StandardScaler()
-    X_night_train_scaled = scaler_night.fit_transform(X_night_train)
-    X_night_test_scaled = scaler_night.transform(X_night_test)
-    print(Fore.GREEN + '[SUCCESS][NOCHE] Escalado de df_night completado.')
-else:
-    X_night_train_scaled, X_night_test_scaled = None, None
-    print(Fore.YELLOW + '[ADVERTENCIA][NOCHE] No se realizó el escalado de df_night debido a datos insuficientes o división fallida.')
-
-# ----------------------------------------------------------------------------------------
-# 10. Entrenamiento de Modelos
-# ----------------------------------------------------------------------------------------
-print('\n' + '=' * 60)
-info('Paso 10: Entrenando modelos con formularios de noche..')
-
-# Validación de datos
-if X_night is not None and y_night is not None and X_night.shape[0] > 1:
-    print(Fore.CYAN + '\n[INFO] Dividiendo df_night para entrenamiento y prueba (80/20)...')
-    X_night_train, X_night_test, y_night_train, y_night_test = train_test_split(X_night, y_night, test_size=0.2, random_state=42)
+# Función para entrenar y evaluar modelos
+def train_and_evaluate_models(X_train, X_test, y_train, y_test, label):
+    print(Fore.CYAN + f'\n[INFO] Entrenando modelos para formularios de {label}...')
 
     print(Fore.CYAN + '\n[INFO] Limpiando columnas vacías o no numéricas...')
-    X_night_train = X_night_train.dropna(axis=1, how='all')
-    X_night_test = X_night_test.dropna(axis=1, how='all')
-    X_night_train = X_night_train.fillna(X_night_train.mean())
-    X_night_test = X_night_test.fillna(X_night_test.mean())
-    X_night_train = X_night_train.select_dtypes(include=['number'])
-    X_night_test = X_night_test.select_dtypes(include=['number'])
+    X_train = X_train.dropna(axis=1, how='all')
+    X_test = X_test.dropna(axis=1, how='all')
+    X_train = X_train.fillna(X_train.mean())
+    X_test = X_test.fillna(X_test.mean())
+    X_train = X_train.select_dtypes(include=['number'])
+    X_test = X_test.select_dtypes(include=['number'])
     success('Limpieza de columnas vacías o no numéricas realizada correctamente.')
 
     print(Fore.CYAN + '\n[INFO] Eliminando columnas con varianza cero...')
-    zero_var_cols = X_night_train.columns[X_night_train.std() == 0]
-    X_night_train = X_night_train.drop(columns=zero_var_cols)
-    X_night_test = X_night_test.drop(columns=zero_var_cols)
+    zero_var_cols = X_train.columns[X_train.std() == 0]
+    X_train = X_train.drop(columns=zero_var_cols)
+    X_test = X_test.drop(columns=zero_var_cols)
     if zero_var_cols.empty:
         print(Fore.YELLOW + '[INFO] No se encontraron columnas con varianza cero para eliminar.')
     else:
@@ -537,9 +506,9 @@ if X_night is not None and y_night is not None and X_night.shape[0] > 1:
 
     print(Fore.CYAN + '\n[INFO] Escalando los datos...')
     scaler = StandardScaler()
-    X_night_train_scaled = scaler.fit_transform(X_night_train)
-    X_night_test_scaled = scaler.transform(X_night_test)
-    if np.isnan(X_night_train_scaled).any():
+    X_train_scaled = scaler.fit_transform(X_train)
+    X_test_scaled = scaler.transform(X_test)
+    if np.isnan(X_train_scaled).any():
         print(Fore.RED + '[ERROR] Se encontraron NaN en los datos escalados. Revisa el preprocesamiento.')
     else:
         print(Fore.GREEN + '[SUCCESS] Datos escalados correctamente. Entrenando modelos...')
@@ -551,50 +520,115 @@ if X_night is not None and y_night is not None and X_night.shape[0] > 1:
         }
 
         # Entrenando y evaluando modelos
-        print(Fore.CYAN + '\n[INFO] Entrenando modelos...')
+        print(Fore.CYAN + '\n[INFO] Entrenando modelo...')
         for name, model in models.items():
-            print('\n' + '-' * 60)
-            print(Fore.LIGHTMAGENTA_EX + f'[INFO] Entrenando con el modelo {name}...')
-            model.fit(X_night_train_scaled, y_night_train)
-            y_pred = model.predict(X_night_test_scaled)
-            mse = mean_squared_error(y_night_test, y_pred)
-            r2 = r2_score(y_night_test, y_pred)
-            success(f'Modelo entrenado correctamnete')
+            print('' + '-' * 60)
+            print(Fore.LIGHTMAGENTA_EX + f'[INFO] Entrenando con el modelo {name} para {label}...')
+            model.fit(X_train_scaled, y_train)
+            y_pred = model.predict(X_test_scaled)
+            mse = mean_squared_error(y_test, y_pred)
+            r2 = r2_score(y_test, y_pred)
+            success(f'Modelo entrenado correctamente para {label}')
             print(Fore.YELLOW + f' - MSE: {mse:.2f}')
             print(Fore.YELLOW + f' - R²: {r2:.2f}')
 
             # ----------------------------------------------------------------------------------------
-            # 9.1 Gráfica de comparación: Valores reales vs. predichos
+            # Gráfica de comparación: Valores reales vs. predichos
             # ----------------------------------------------------------------------------------------
-            print(Fore.CYAN + f'\n[INFO] Generando gráfico de Reales vs. Predichos para {name}...')
+            print(Fore.CYAN + f'[INFO] Visualizando gráfico de datos reales vs datos Predichos para {name} ({label})...')
             plt.figure(figsize=(8, 6))
-            sns.scatterplot(x=y_night_test, y=y_pred)
-            plt.plot([y_night_test.min(), y_night_test.max()], [y_night_test.min(), y_night_test.max()], 'r--')
+            sns.scatterplot(x=y_test, y=y_pred)
+            plt.plot([y_test.min(), y_test.max()], [y_test.min(), y_test.max()], 'r--')
             plt.xlabel('Valores Reales')
             plt.ylabel('Valores Predichos')
-            plt.title(f'Comparación: Reales vs. Predichos ({name})')
+            plt.title(f'Comparación: Reales vs. Predichos ({name} - {label})')
             plt.grid(True)
             plt.tight_layout()
             plt.show()
 
             # ----------------------------------------------------------------------------------------
-            # 9.2 Guardar modelo entrenado
+            # Guardar modelo entrenado
             # ----------------------------------------------------------------------------------------
-            print(Fore.CYAN + f'[INFO] Guardando el modelo {name} entrenado...')
+            print(Fore.CYAN + f'[INFO] Guardando el modelo {name} entrenado para {label}...')
 
             # Crear carpeta si no existe
             os.makedirs('modelos_guardados', exist_ok=True)
 
             # Guardar modelo
-            ruta_modelo = f'modelos_guardados/{name.lower().replace(" ", "_")}_night.pkl'
+            ruta_modelo = f'modelos_guardados/{name.lower().replace(" ", "_")}_{label.lower()}.pkl'
             joblib.dump(model, ruta_modelo)
-            print(Fore.CYAN + f'[INFO] Modelo {name} guardado exitosamente en: {ruta_modelo}')
+            success('[SUCCESS] Modelo {name} guardado exitosamente en: {ruta_modelo}')
 
+# Entrenar modelos para "noche"
+if X_night_train is not None and y_night_train is not None and X_night_train.shape[0] > 1:
+    train_and_evaluate_models(X_night_train, X_night_test, y_night_train, y_night_test, "Noche")
 else:
-    print(Fore.RED + '[ERROR] df_night no tiene suficientes datos válidos para entrenar modelos.')
+    print(Fore.RED + '\n[ERROR] df_night no tiene suficientes datos válidos para entrenar modelos.')
+
+# Entrenar modelos para "mañana"
+if X_morning_train is not None and y_morning_train is not None and X_morning_train.shape[0] > 1:
+    train_and_evaluate_models(X_morning_train, X_morning_test, y_morning_train, y_morning_test, "Mañana")
+else:
+    print(Fore.RED + '\n[ERROR] df_morning no tiene suficientes datos válidos para entrenar modelos.')
 
 
 # ----------------------------------------------------------------------------------------
-# 11. Validación y Subida a Firebase (df_night)
+# 10. Validación de los modelos
 # ----------------------------------------------------------------------------------------
+print('\n' + '=' * 60)
+info('Paso 10: Validando los modelos generados...')
 
+def validate_models(X_test, y_test, label):
+    print(Fore.LIGHTRED_EX + f'\n[INFO] Validando modelos para {label}...')
+
+    # Escalar los datos de prueba
+    scaler = StandardScaler()
+    X_test_scaled = scaler.fit_transform(X_test)
+
+    # Cargar modelos guardados
+    model_dir = 'modelos_guardados'
+    if not os.path.exists(model_dir):
+        print(Fore.RED + f'[ERROR] No se encontró el directorio "{model_dir}" con los modelos guardados.')
+        return
+
+    for model_file in os.listdir(model_dir):
+        if label.lower() in model_file:
+            model_path = os.path.join(model_dir, model_file)
+            print(Fore.CYAN + f'\n[INFO] Cargando modelo desde: {model_path}...')
+            try:
+                model = joblib.load(model_path)
+                y_pred = model.predict(X_test_scaled)
+
+                # Calcular métricas
+                mse = mean_squared_error(y_test, y_pred)
+                r2 = r2_score(y_test, y_pred)
+                success(f'Modelo validado correctamente: {model_file}')
+                print(Fore.YELLOW + f' - MSE: {mse:.2f}')
+                print(Fore.YELLOW + f' - R²: {r2:.2f}')
+
+                # Gráfica de comparación: Valores reales vs. predichos
+                print(Fore.CYAN + f'\n[INFO] Generando gráfico de Reales vs. Predichos para {model_file}...')
+                plt.figure(figsize=(8, 6))
+                sns.scatterplot(x=y_test, y=y_pred)
+                plt.plot([y_test.min(), y_test.max()], [y_test.min(), y_test.max()], 'r--')
+                plt.xlabel('Valores Reales')
+                plt.ylabel('Valores Predichos')
+                plt.title(f'Validación: Reales vs. Predichos ({model_file})')
+                plt.grid(True)
+                plt.tight_layout()
+                plt.show()
+
+            except Exception as e:
+                error(f'Error al cargar o validar el modelo {model_file}: {e}')
+
+# Validar modelos para "noche"
+if X_night_test is not None and y_night_test is not None and X_night_test.shape[0] > 1:
+    validate_models(X_night_test, y_night_test, "Noche")
+else:
+    print(Fore.RED + '\n[ERROR] No hay suficientes datos válidos en df_night para validar modelos.')
+
+# Validar modelos para "mañana"
+if X_morning_test is not None and y_morning_test is not None and X_morning_test.shape[0] > 1:
+    validate_models(X_morning_test, y_morning_test, "Mañana")
+else:
+    print(Fore.RED + '\n[ERROR] No hay suficientes datos válidos en df_morning para validar modelos.')
