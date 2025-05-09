@@ -122,7 +122,7 @@ except Exception as e:
 print('\n' + '=' * 60)
 info('Paso 4: Procesando datos...')
 
-def process_data(df,tipo_form, min_rows=10, min_non_null_ratio=0.2):
+def process_data(df, tipo_form, min_rows=10, min_non_null_ratio=0.2):
     print('\n' + '-' * 60)
     print(Fore.LIGHTMAGENTA_EX + f'[INFO] Procesando DataFrame de {tipo_form} con {df.shape[0]} instancias')
     
@@ -138,7 +138,7 @@ def process_data(df,tipo_form, min_rows=10, min_non_null_ratio=0.2):
         success('Columnas no relevantes eliminadas correctamente ✔')
     except Exception as e:
         error(f'Error al eliminar columnas no relevantes: {e}')
-    
+
     # -----------------------------------------------------------------------------
     # 4.2 Eliminar Filas con Valores Nulos
     # -----------------------------------------------------------------------------
@@ -157,62 +157,13 @@ def process_data(df,tipo_form, min_rows=10, min_non_null_ratio=0.2):
         error(f'Error al eliminar filas en columnas críticas: {e}')
 
     # -----------------------------------------------------------------------------
-    # 4.3 Convertir Variables Categóricas a Numéricas
+    # 4.3 Crear Nuevas Variables Calculadas
     # -----------------------------------------------------------------------------
     print('-' * 60)
-    print(Fore.CYAN + f'[INFO] Convirtiendo variables categóricas a numéricas mediante one-hot encoding...')
-    categorical_cols = ['country', 'state', 'city', 'final_ranking']
-    df = pd.get_dummies(df, columns=[col for col in categorical_cols if col in df.columns], dummy_na=False)
-    if not df.empty:
-        success('Variables categóricas convertidas a numéricas mediante one-hot encoding ✔')
-    else:
-        warning('No se encontraron datos para convertir variables categóricas a numéricas.')
+    print(Fore.CYAN + f'[INFO] Calculando variables calculadas...')
     
-    # -----------------------------------------------------------------------------
-    # 4.4 Detectar y Eliminar Duplicados
-    # -----------------------------------------------------------------------------
-    print('-' * 60)
-    print(Fore.CYAN + f'[INFO] Eliminando duplicados...')
-    initial_row_count = len(df)
-    df.drop_duplicates(inplace=True)
-    final_row_count = len(df)
-    if final_row_count < initial_row_count:
-        success(f'[{tipo_form.upper()}] Duplicados eliminados correctamente ✔ ({initial_row_count - final_row_count} filas eliminadas)')
-    else:
-        info(f'[{tipo_form.upper()}] No se encontraron duplicados para eliminar.')
-
-    # -----------------------------------------------------------------------------
-    # 5.5 Análisis y Manejo de Outliers
-    # -----------------------------------------------------------------------------
-    print('-' * 60)
-    print(Fore.CYAN + f'[INFO] Eliminando duplicados...')
-    def remove_outliers(df, column):
-        if column in df.columns and df[column].notna().sum() > 1:
-            Q1 = df[column].quantile(0.25)
-            Q3 = df[column].quantile(0.75)
-            IQR = Q3 - Q1
-            lower_bound = Q1 - 2 * IQR
-            upper_bound = Q3 + 2 * IQR
-            initial_count = df.shape[0]
-            df = df[(df[column] >= lower_bound) & (df[column] <= upper_bound)]
-            removed_count = initial_count - df.shape[0]
-            if removed_count > 0:
-                print(Fore.YELLOW + f'[INFO] Eliminados {removed_count} outliers en la columna {column}')
-            return df
-        return df
-
-    numeric_cols = [col for col in critical_columns if col in df.columns]
-    for col in numeric_cols:
-        df = remove_outliers(df, col)
-    success('Procesamiento de Outliers completado correctamente ✔')
-    
-    # -----------------------------------------------------------------------------
-    # 4.5 Crear Nuevas Variables Calculadas
-    # -----------------------------------------------------------------------------
-    print('-' * 60)
-    print(Fore.CYAN + f'[INFO] Calculando variables claculadas...')
     # ----------------------------------------------
-    # 4.5.1 Calcular Tiempo Total de Redes Sociales 
+    # 4.3.1 Calcular Tiempo Total de Redes Sociales 
     # ----------------------------------------------
     print('.' * 60)
     print(Fore.CYAN + f'[INFO] Calculando el tiempo total invertido en redes sociales...')
@@ -220,8 +171,9 @@ def process_data(df,tipo_form, min_rows=10, min_non_null_ratio=0.2):
         df['social_media_time'] = df['instagram_time'] + df['tiktok_time']
         df['social_media_time'] = df['social_media_time'].fillna(df['social_media_time'].mean())
         success('Variable social_media_time creada correctamente ✔')
+
     # --------------------------------------------------------------------
-    # 5.5.2 Extraer app más usada, segunda más usada y tercera más usada
+    # 5.3.2 Extraer app más usada, segunda más usada y tercera más usada
     # --------------------------------------------------------------------
     print('.' * 60)
     print(Fore.CYAN + f'[INFO] Extrayendo las aplicaciones más usadas del ranking final...')
@@ -241,10 +193,10 @@ def process_data(df,tipo_form, min_rows=10, min_non_null_ratio=0.2):
         error('Columna "final_ranking" no disponible en este tipo de formulario.')
 
     # ----------------------------------------------
-    # 4.5.3 Calcular Promedio de Estado de Ánimo
+    # 4.3.3 Calcular Promedio de Estado de Ánimo
     # ----------------------------------------------
     print('.' * 60)
-    print(Fore.CYAN + f'[INFO] Calcualndo el promedio del estado del animo...')
+    print(Fore.CYAN + f'[INFO] Calculando el promedio del estado del ánimo...')
     mood_cols = ['happinessLevel', 'sadnessLevel', 'apathyLevel', 'avgAnxietyLevel', 'avgEnergyLevel']
     existing_mood_cols = [col for col in mood_cols if col in df.columns]
     if existing_mood_cols:
@@ -254,7 +206,7 @@ def process_data(df,tipo_form, min_rows=10, min_non_null_ratio=0.2):
         error('No se encontraron columnas necesarias para calcular el estado de ánimo promedio.')
 
     # ----------------------------------------------
-    # 4.5.4 Calcular cantidad de horas de sueño
+    # 4.3.4 Calcular cantidad de horas de sueño
     # ----------------------------------------------
     print('.' * 60)
     print(Fore.CYAN + f'[INFO] Calculando la duración del sueño...')
@@ -270,7 +222,57 @@ def process_data(df,tipo_form, min_rows=10, min_non_null_ratio=0.2):
         error('Columnas necesarias para calcular la duración del sueño no encontradas.')
 
     # -----------------------------------------------------------------------------
-    # 4.6 Rellenar valores faltantes con la media
+    # 4.4 Convertir Variables Categóricas a Numéricas
+    # -----------------------------------------------------------------------------
+    print('-' * 60)
+    print(Fore.CYAN + f'[INFO] Convirtiendo variables categóricas a numéricas mediante one-hot encoding...')
+    categorical_cols = ['country', 'state', 'city', 'final_ranking']
+    df = pd.get_dummies(df, columns=[col for col in categorical_cols if col in df.columns], dummy_na=False)
+    if not df.empty:
+        success('Variables categóricas convertidas a numéricas mediante one-hot encoding ✔')
+    else:
+        warning('No se encontraron datos para convertir variables categóricas a numéricas.')
+
+    # -----------------------------------------------------------------------------
+    # 4.5 Detectar y Eliminar Duplicados
+    # -----------------------------------------------------------------------------
+    print('-' * 60)
+    print(Fore.CYAN + f'[INFO] Eliminando duplicados...')
+    initial_row_count = len(df)
+    df.drop_duplicates(inplace=True)
+    final_row_count = len(df)
+    if final_row_count < initial_row_count:
+        success(f'[{tipo_form.upper()}] Duplicados eliminados correctamente ✔ ({initial_row_count - final_row_count} filas eliminadas)')
+    else:
+        info(f'[{tipo_form.upper()}] No se encontraron duplicados para eliminar.')
+
+    # -----------------------------------------------------------------------------
+    # 4.6 Análisis y Manejo de Outliers
+    # -----------------------------------------------------------------------------
+    print('-' * 60)
+    print(Fore.CYAN + f'[INFO] Eliminando outliers...')
+    def remove_outliers(df, column):
+        if column in df.columns and df[column].notna().sum() > 1:
+            Q1 = df[column].quantile(0.25)
+            Q3 = df[column].quantile(0.75)
+            IQR = Q3 - Q1
+            lower_bound = Q1 - 2 * IQR
+            upper_bound = Q3 + 2 * IQR
+            initial_count = df.shape[0]
+            df = df[(df[column] >= lower_bound) & (df[column] <= upper_bound)]
+            removed_count = initial_count - df.shape[0]
+            if removed_count > 0:
+                print(Fore.YELLOW + f'[INFO] Eliminados {removed_count} outliers en la columna {column}')
+            return df
+        return df
+
+    numeric_cols = [col for col in critical_columns if col in df.columns]
+    for col in numeric_cols:
+        df = remove_outliers(df, col)
+    success('Procesamiento de Outliers completado correctamente ✔')
+
+    # -----------------------------------------------------------------------------
+    # 4.7 Rellenar valores faltantes con la media
     # -----------------------------------------------------------------------------
     print('-' * 60)
     print(Fore.CYAN + f'[INFO] Rellenando valores faltantes con la media...')
@@ -280,15 +282,16 @@ def process_data(df,tipo_form, min_rows=10, min_non_null_ratio=0.2):
         success('Valores faltantes en columnas numéricas rellenados con la media ✔')
     else:
         warning('No se encontraron columnas numéricas para rellenar valores faltantes.')
-    
+
     # -----------------------------------------------------------------------------
-    # 4.6 Rellenar valores faltantes con la media
+    # 4.8 Eliminar columnas con baja proporción de valores no nulos o varianza cero
     # -----------------------------------------------------------------------------
     print('-' * 60)
     print(Fore.CYAN + f'[INFO] Eliminando columnas con baja proporción de valores no nulos o varianza cero...')
+    protected_cols = ['social_media_time', 'sleep_duration_hours', 'instagram_time', 'tiktok_time', 'sleep_time', 'wake_up_time', 'unlocks', 'rest_level']
     columns_to_remove = []
     for col in df.columns:
-        if col == 'maxAnxietyLevel':
+        if col in protected_cols or col == 'maxAnxietyLevel':
             continue
         non_null_ratio = df[col].notna().sum() / df.shape[0]
         if non_null_ratio < min_non_null_ratio:
@@ -299,9 +302,9 @@ def process_data(df,tipo_form, min_rows=10, min_non_null_ratio=0.2):
             columns_to_remove.append(col)
     df = df.drop(columns=columns_to_remove)
     success('Columnas con baja proporción de valores no nulos o varianza cero eliminadas ✔')
-    
+
     # -----------------------------------------------------------------------------
-    # 4.6 Mostrar dataframe resultante del procesamiento de los datos
+    # 4.9 Mostrar dataframe resultante del procesamiento de los datos
     # -----------------------------------------------------------------------------
     print('-' * 60)
     print(Fore.CYAN + f'[INFO] Mostrando DataFrame resultante del procesamiento...')
@@ -316,7 +319,7 @@ def process_data(df,tipo_form, min_rows=10, min_non_null_ratio=0.2):
 
 df_morning = process_data(df_morning, "mañana")
 df_night = process_data(df_night, "noche")
-success('\nProcesamiento de datos completado para ambos períodos ✔\n')
+success('Procesamiento de datos completado para ambos períodos ✔\n')
 
 # --------------------------------------
 # 5. Análisis Exploratorio de Datos
@@ -417,8 +420,8 @@ success('\nAnálisis exploratorio de datos completado ✔\n')
 print('\n' + '=' * 60)
 info('Paso 6: Preparando datos para entrenar...')
 
-def prepare_data(df,form_type, target='maxAnxietyLevel', min_rows=10):
-    print(Fore.CYAN + '[INFO] Dividiendo dataframe {form_typeen} conjuntos de entrenamiento y prueba...')
+def prepare_data(df, form_type, target='maxAnxietyLevel', min_rows=10):
+    print(Fore.CYAN + f'[INFO] Dividiendo dataframe {form_type} en conjuntos de entrenamiento y prueba...')
     if df.shape[0] < min_rows:
         error(f'El DataFrame tiene solo {df.shape[0]} fila(s). No se puede modelar.')
         return None
@@ -502,82 +505,51 @@ def train_and_evaluate(X_train, X_train_scaled, X_test_scaled, y_train, y_test, 
         results[model_name] = {'MSE': mse, 'R2': r2}
         print(Fore.YELLOW + f'[INFO] {name} - {model_name} - MSE: {mse:.2f}, R2: {r2:.2f}')
     success(f'Modelos entrenados y evaluados para {name} ✔')
-    return results, X_train.columns
+    return results, X_train.columns, models
 
-morning_results, morning_columns = train_and_evaluate(X_morning, X_morning_train_scaled, X_morning_test_scaled, y_morning_train, y_morning_test, 'Mañana')
-night_results, night_columns = train_and_evaluate(X_night, X_night_train_scaled, X_night_test_scaled, y_night_train, y_night_test, 'Noche')
+morning_results, morning_columns, morning_models = train_and_evaluate(X_morning, X_morning_train_scaled, X_morning_test_scaled, y_morning_train, y_morning_test, 'Mañana')
+night_results, night_columns, night_models = train_and_evaluate(X_night, X_night_train_scaled, X_night_test_scaled, y_night_train, y_night_test, 'Noche')
 
 # ---------------------------------------------------------------
-# 8. Guardar Modelos y Subir Resultados de validación a Firebase
+# 8. Validación de modelos y subida de resultados a Firebase
 # ---------------------------------------------------------------
 print('\n' + '=' * 60)
 info('Paso 8: Validando modelos y subiendo resultados a Firebase...')
 
-if X_night_train_scaled is not None and y_night_train is not None:
-    print(Fore.CYAN + '\n[INFO] Validando modelo para formualrios de noche...')
-    best_model = RandomForestRegressor(random_state=42)
-    best_model.fit(X_night_train_scaled, y_night_train)
-    y_pred = best_model.predict(X_night_test_scaled)
-    mse = mean_squared_error(y_night_test, y_pred)
-    r2 = r2_score(y_night_test, y_pred)
-    
-    print(Fore.YELLOW + f'[INFO] Resultados para predicciones de formularios de noche con RandomForestRegressor:')
-    print(Fore.YELLOW + f'  MSE: {mse:.2f}')
-    print(Fore.YELLOW + f'  R²: {r2:.2f}')
-    
-    os.makedirs('modelos_guardados', exist_ok=True)
-    joblib.dump(best_model, 'modelos_guardados/model_night_anxiety.pkl')
-    joblib.dump(night_columns, 'modelos_guardados/training_columns_night_anxiety.pkl')
-    joblib.dump(scaler_night, 'modelos_guardados/scaler_night_anxiety.pkl')
-    success('Modelo, columnas y scaler guardados exitosamente para noche ✔')
-    
-    results = {
-        'night': {
-            'model': 'Random Forest',
-            'mse': mse,
-            'r2': r2
-        }
-    }
-    try:
-        db.collection('resultados').document('modelo_noche_anxiety').set(results)
-        success('Resultados subidos a Firebase exitosamente para noche ✔')
-    except Exception as e:
-        error(f'Error al subir resultados a Firebase para noche: {e}')
-else:
-    warning('No se pudo guardar el modelo para noche debido a datos insuficientes.')
+def validate_and_upload_results(X_train_scaled, y_train, X_test_scaled, y_test, name, columns, scaler, form_type, models):
+    if X_train_scaled is not None and y_train is not None:
+        print(Fore.CYAN + f'\n[INFO] Validando modelos para formularios de {form_type}...')
+        results = {}
+        for model_name, model in models.items():
+            model.fit(X_train_scaled, y_train)
+            y_pred = model.predict(X_test_scaled)
+            mse = mean_squared_error(y_test, y_pred)
+            r2 = r2_score(y_test, y_pred)
+            results[model_name] = {'MSE': mse, 'R2': r2}
+            print(Fore.YELLOW + f'[INFO] Resultados para {form_type} con {model_name}: MSE: {mse:.2f}, R²: {r2:.2f}')
+        
+        # Guardar todos los modelos, columnas y scaler
+        os.makedirs('modelos_guardados', exist_ok=True)
+        for model_name, model in models.items():
+            joblib.dump(model, f'modelos_guardados/model_{form_type}_{model_name}.pkl')
+        joblib.dump(columns, f'modelos_guardados/training_columns_{form_type}.pkl')
+        joblib.dump(scaler, f'modelos_guardados/scaler_{form_type}.pkl')
+        success(f'Modelos, columnas y scaler guardados exitosamente para {form_type} ✔')
+        
+        # Subir resultados a Firebase
+        try:
+            db.collection('resultados').document(f'modelo_{form_type}_anxiety').set(results)
+            success(f'Resultados subidos a Firebase exitosamente para {form_type} ✔')
+        except Exception as e:
+            error(f'Error al subir resultados a Firebase para {form_type}: {e}')
+    else:
+        warning(f'No se pudo guardar el modelo para {form_type} debido a datos insuficientes.')
 
-if X_morning_train_scaled is not None and y_morning_train is not None:
-    print(Fore.CYAN + '\n[INFO] Validando modelo para formualrios de mañana...')
-    best_model = RandomForestRegressor(random_state=42)
-    best_model.fit(X_morning_train_scaled, y_morning_train)
-    y_pred = best_model.predict(X_morning_test_scaled)
-    mse = mean_squared_error(y_morning_test, y_pred)
-    r2 = r2_score(y_morning_test, y_pred)
-    
-    print(Fore.YELLOW + f'[INFO] Resultados para predicciones de formularios de mañana con RandomForestRegressor:')
-    print(Fore.YELLOW + f'  MSE: {mse:.2f}')
-    print(Fore.YELLOW + f'  R²: {r2:.2f}')
-    
-    os.makedirs('modelos_guardados', exist_ok=True)
-    joblib.dump(best_model, 'modelos_guardados/model_morning_anxiety.pkl')
-    joblib.dump(morning_columns, 'modelos_guardados/training_columns_morning_anxiety.pkl')
-    joblib.dump(scaler_morning, 'modelos_guardados/scaler_morning_anxiety.pkl')
-    success('Modelo, columnas y scaler guardados exitosamente para mañana ✔')
-    
-    results = {
-        'morning': {
-            'model': 'Random Forest',
-            'mse': mse,
-            'r2': r2
-        }
-    }
-    try:
-        db.collection('resultados').document('modelo_morning_anxiety').set(results)
-        success('Resultados subidos a Firebase exitosamente para mañana ✔')
-    except Exception as e:
-        error(f'Error al subir resultados a Firebase para mañana: {e}')
-else:
-    warning('No se pudo guardar el modelo para mañana debido a datos insuficientes.')
+# Validar y subir resultados para noche
+validate_and_upload_results(X_night_train_scaled, y_night_train, X_night_test_scaled, y_night_test, 'Noche', night_columns, scaler_night, 'noche', night_models)
+
+# Validar y subir resultados para mañana
+validate_and_upload_results(X_morning_train_scaled, y_morning_train, X_morning_test_scaled, y_morning_test, 'Mañana', morning_columns, scaler_morning, 'mañana', morning_models)
 
 print('\n' + '=' * 60)
 success('Ejecución del script completada exitosamente ✔')
