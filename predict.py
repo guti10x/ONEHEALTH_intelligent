@@ -6,6 +6,7 @@ import os
 from datetime import datetime, timedelta
 import pandas as pd
 import numpy as np
+import pickle
 
 # Inicializar colorama
 init(autoreset=True)
@@ -92,6 +93,10 @@ try:
     data = [doc.to_dict() for doc in docs]
     df = pd.DataFrame(data)
 
+    # Verificar si no se encontraron formularios
+    if df.empty:
+        raise ValueError(f"No se encontraron formularios entre {start_time} y {end_time} ({period})")
+
     # Guardar el id_user separado para mantener relación post-procesamiento
     id_users = df['id_user'].copy() if 'id_user' in df.columns else None
 
@@ -117,15 +122,15 @@ training_columns = {}
 
 # Definir rutas de archivos para cada periodo
 night_files = {
-    'model': 'modelos_guardados/model_noche_Linear_Regression.pkl',
-    'columns': 'modelos_guardados/training_columns_noche.pkl',
-    'scaler': 'modelos_guardados/scaler_noche.pkl'
+    'model': 'predict_models_output/model_noche_Linear_Regression.pkl',
+    'columns': 'predict_models_output/training_columns_noche.pkl',
+    'scaler': 'predict_models_output/scaler_noche.pkl'
 }
 
 morning_files = {
-    'model': 'modelos_guardados/model_mañana_Linear_Regression.pkl',
-    'columns': 'modelos_guardados/training_columns_mañana.pkl',
-    'scaler': 'modelos_guardados/scaler_mañana.pkl'
+    'model': 'predict_models_output/model_mañana_Linear_Regression.pkl',
+    'columns': 'predict_models_output/training_columns_mañana.pkl',
+    'scaler': 'predict_models_output/scaler_mañana.pkl'
 }
 
 # Cargar archivos según el periodo de predicción
@@ -309,7 +314,7 @@ def generate_predictions(df_input, period, model, scaler, training_columns):
             # Imprimir predicción con su ID
             print(Fore.YELLOW + f'[INFO] Predicciones para formualrios de {period} generadas::')
             for idx, row in df_input.iterrows():
-                print(f" - Usuario con ID {row['id_user']} - Predicción del nivel de ansiedad: {row['predicted_maxAnxietyLevel']:.4f}")
+                print(Fore.MAGENTA + f" - Usuario con ID {row['id_user']} - Predicción del nivel de ansiedad: {row['predicted_maxAnxietyLevel']:.4f}")
         else:
             warning(f'No se pueden generar predicciones para {period}: DataFrame vacío o sin columnas procesadas.')
     else:
@@ -321,3 +326,73 @@ if 'night' in models:
 
 if 'morning' in models:
     generate_predictions(df_processed, 'morning', models['morning'], scalers['morning'], training_columns)
+
+# --------------------------------------
+# 6. Guardado y Subida de Predicciones
+# --------------------------------------
+print('\n' + '=' * 60)
+info('Paso 6: Guardando y subiendo predicciones...')
+
+output_dir = './predictions/'
+os.makedirs(output_dir, exist_ok=True)
+
+# Función para guardar y subir predicciones
+def save_and_upload_predictions(df, predictions):
+    global period  # Accedemos a la variable global period
+    # Aseguramos que hay datos para el período
+    if len(predictions) > 0:
+        print('-' * 60)
+        print(Fore.CYAN + f'\n[INFO] Guardando predicciones para {period}...')
+
+        # Preparamos el DataFrame con las predicciones y el id_user
+        df_output = df[['recorded_at', 'id_user']].copy()
+        df_output['predicted_maxAnxietyLevel'] = predictions
+        df_output['recorded_at'] = df_output['recorded_at'].apply(lambda x: datetime.now())  # Usamos la fecha actual
+        output_path = os.path.join(output_dir, f'predicciones_{period}_anxiety.csv')
+        df_output.to_csv(output_path, index=False, encoding='utf-8-sig')
+
+        success(f'Predicciones para {period} guardadas en {output_path} ✔')
+
+        # Guardar las predicciones en el archivo de log
+        log_path = os.path.join(output_dir, 'log_de_predicciones.txt')
+        with open(log_path, 'a') as log_file:
+            for _, row in df_output.iterrows():
+                log_file.write(f"id_user: {row['id_user']}, "
+                               f"recorded_at: {row['recorded_at'].isoformat()}, "
+                               f"prediction: {row['predicted_maxAnxietyLevel']}, "
+                               f"model: Linear Regression, "
+                               f"form period: {period}\n")
+        success(f'Log de predicciones actualizado en {log_path} ✔')
+
+        # Subir las predicciones a Firebase
+        print('-' * 60)
+        print(Fore.CYAN + f'[INFO] Subiendo predicciones para {period} a Firebase...')
+        try:
+            for _, row in df_output.iterrows():
+                doc_id = f'pred_{period}_{row["recorded_at"].strftime("%Y%m%d_%H%M%S")}'
+                db.collection('model_predictions').document(doc_id).set({
+                    'id_user': row['id_user'],
+                    'recorded_at': row['recorded_at'].isoformat(),
+                    'predicted_maxAnxietyLevel': float(row['predicted_maxAnxietyLevel']),
+                    'model': 'Linear Regression',
+                    'form period': period
+                })
+            success(f'Predicciones para {period} subidas a Firebase exitosamente ✔')
+        except Exception as e:
+            error(f'Error al subir predicciones para {period} a Firebase: {e}')
+    else:
+        warning(f'No se guardaron/subieron predicciones para {period}: datos insuficientes.')
+
+# Establecemos el valor de period y llamamos a la función para cada periodo
+if 'night' in predictions:
+    period = 'noche'
+    save_and_upload_predictions(df, predictions['night'])
+
+if 'morning' in predictions:
+    period = 'mañana'
+    save_and_upload_predictions(df, predictions['morning'])
+
+# Final del script
+print('\n' + '=' * 60)
+success('Ejecución del script completada exitosamente ✔')
+print('=' * 60)

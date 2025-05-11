@@ -104,7 +104,7 @@ try:
     df_morning = df[df['period'] == 'mañana'].copy()
     df_night = df[df['period'] == 'noche'].copy()
 
-    output_dir = './output/'
+    output_dir = './training_output/'
     os.makedirs(output_dir, exist_ok=True)
     df_morning.to_csv(os.path.join(output_dir, 'formularios_manana.csv'), index=False, encoding='utf-8-sig')
     df_night.to_csv(os.path.join(output_dir, 'formularios_noche.csv'), index=False, encoding='utf-8-sig')
@@ -355,7 +355,7 @@ def perform_eda(df, title):
         plt.figure(figsize=(10, 8))
         sns.heatmap(corr, annot=True, cmap='coolwarm', fmt='.2f', vmin=-1, vmax=1, mask=np.isnan(corr))
         plt.title(f'Matriz de Correlación - {title}')
-        plt.savefig(f'./output/correlation_matrix_{title.lower().replace(" ", "_")}.png')
+        plt.savefig(f'./training_output/correlation_matrix_{title.lower().replace(" ", "_")}.png')
         plt.close()
         success(f'Matriz de correlación generada y guardada para {title} ✔')
     else:
@@ -372,7 +372,7 @@ def perform_eda(df, title):
             plt.title(f'Histograma de {col} - {title}')
             plt.xlabel(col)
             plt.ylabel('Frecuencia')
-            plt.savefig(f'./output/histogram_{col}_{title.lower().replace(" ", "_")}.png')
+            plt.savefig(f'./training_output/histogram_{col}_{title.lower().replace(" ", "_")}.png')
             plt.close()
             success(f'Histograma de {col} generado y guardado para {title} ✔')
         else:
@@ -387,7 +387,7 @@ def perform_eda(df, title):
             sns.boxplot(x=df[col].dropna())
             plt.title(f'Boxplot de {col} - {title}')
             plt.xlabel(col)
-            plt.savefig(f'./output/boxplot_{col}_{title.lower().replace(" ", "_")}.png')
+            plt.savefig(f'./training_output/boxplot_{col}_{title.lower().replace(" ", "_")}.png')
             plt.close()
             success(f'Boxplot de {col} generado y guardado para {title} ✔')
         else:
@@ -404,7 +404,7 @@ def perform_eda(df, title):
             plt.title(f'Relación entre social_media_time y maxAnxietyLevel - {title}')
             plt.xlabel('social_media_time')
             plt.ylabel('maxAnxietyLevel')
-            plt.savefig(f'./output/scatter_social_media_anxiety_{title.lower().replace(" ", "_")}.png')
+            plt.savefig(f'./training_output/scatter_social_media_anxiety_{title.lower().replace(" ", "_")}.png')
             plt.close()
             success(f'Scatter plot de social_media_time vs maxAnxietyLevel generado y guardado para {title} ✔')
         else:
@@ -529,12 +529,12 @@ def validate_and_upload_results(X_train_scaled, y_train, X_test_scaled, y_test, 
             print(Fore.YELLOW + f'[INFO] Resultados para {form_type} con {model_name}: MSE: {mse:.2f}, R²: {r2:.2f}')
         
         # Guardar todos los modelos, columnas y scaler
-        os.makedirs('modelos_guardados', exist_ok=True)
+        os.makedirs('predict_models_output', exist_ok=True)
         for model_name, model in models.items():
             sanitized_model_name = model_name.replace(" ", "_")
-            joblib.dump(model, f'modelos_guardados/model_{form_type}_{sanitized_model_name}.pkl')
-            joblib.dump(columns, f'modelos_guardados/training_columns_{form_type}.pkl')
-            joblib.dump(scaler, f'modelos_guardados/scaler_{form_type}.pkl')
+            joblib.dump(model, f'predict_models_output/model_{form_type}_{sanitized_model_name}.pkl')
+            joblib.dump(columns, f'predict_models_output/training_columns_{form_type}.pkl')
+            joblib.dump(scaler, f'predict_models_output/scaler_{form_type}.pkl')
             success(f'Modelos, columnas y scaler guardados exitosamente para {form_type} ✔')
         
         # Subir resultados a Firebase
