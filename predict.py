@@ -42,7 +42,7 @@ print(Fore.BLUE + """
              ..:^^~~~~^::.                                                                                                                                                                                                                                                              
 """)
 print("-" * 100)
-print(Fore.BLUE + '[INFO] Iniciando el script de predicción...')
+print(Fore.BLUE + '\n[INFO] Iniciando el script de predicción...')
 
 # --------------------------
 # 1. Conexión a Firebase
@@ -70,10 +70,10 @@ try:
     # Determinar si vamos a predecir para noche o para mañana
     if 6 <= now.hour < 19:
         prediction_period = 'night'  # Estamos en mañana, predecimos para noche
-        print(Fore.YELLOW + f'[INFO] Obteniendo formularios de la mañana...')
+        print(Fore.CYAN + f'[INFO] Obteniendo formularios de la mañana...')
     else:
         prediction_period = 'morning'  # Estamos en noche, predecimos para mañana
-        print(Fore.YELLOW + f'[INFO] Obteniendo formularios de la noche...')
+        print(Fore.CYAN + f'[INFO] Obteniendo formularios de la noche...')
 
     # Determinar el rango de tiempo en función del periodo de predicción
     if prediction_period == 'night':
@@ -85,23 +85,26 @@ try:
 
     period = prediction_period  # Conservamos esta variable para compatibilidad
 
-    info(f'Obteniendo formularios entre: {start_time} y {end_time} ({period})')
+    print(Fore.YELLOW + f'Obteniendo formularios entre: {start_time} y {end_time} ({period})')
 
     # Filtrar formularios en el rango de tiempo
     docs = db.collection('formularios').where('recorded_at', '>=', start_time).where('recorded_at', '<', end_time).stream()
     data = [doc.to_dict() for doc in docs]
     df = pd.DataFrame(data)
+
+    # Guardar el id_user separado para mantener relación post-procesamiento
+    id_users = df['id_user'].copy() if 'id_user' in df.columns else None
+
     # Imprimir los datos obtenidos de Firebase
     print(Fore.CYAN + '[DEBUG] Datos obtenidos de Firebase:')
     for i, doc in enumerate(data):
         print(f"Documento {i + 1}: {doc}")
     success(f'{len(df)} formularios encontrados y cargados correctamente ✔')
-    print(Fore.YELLOW + f'[INFO] Datos cargados: {df.shape[0]} filas, {df.shape[1]} columnas')
+    print(Fore.YELLOW + f'[INFO] Datos cargados: {df.shape[0]} formulario(s), {df.shape[1]} columnas')
     print(Fore.YELLOW + f'[INFO] Columnas en datos crudos: {df.columns.tolist()}')
 except Exception as e:
     error(f'Fallo al leer los formularios desde Firestore: {e}')
     exit()
-
 
 # --------------------------------------
 # 3. Carga de Modelos y Escaladores
@@ -175,84 +178,138 @@ print(f"[DEBUG] prediction_period: '{prediction_period}'")
 print(f"[DEBUG] training_columns keys: {list(training_columns.keys())}")
 print(f"[DEBUG] df rows: {df.shape[0]}")
 
+# Guardar copia de los ID de usuario antes de eliminar columnas
+id_users = df['id_user'].copy() if 'id_user' in df.columns else pd.Series([None] * len(df))
+
 # Definición de la función de preprocesamiento de datos
 def preprocess_data(df, training_cols, period):
+    print('-' * 60)
     print(Fore.CYAN + f'\n[INFO] Preprocesando datos para {period} con {df.shape[0]} filas iniciales')
 
+    # 1. Eliminar columnas no relevantes
+    print('\n' + '.' * 60)
+    print(Fore.CYAN + f'[INFO] Eliminando columnas no relevantes para {period}...')
     critical_columns = ['sadnessLevel', 'avgEnergyLevel', 'happinessLevel']
-    print(Fore.YELLOW + f'[INFO] Columnas críticas presentes: {[col for col in critical_columns if col in df.columns]}')
+    try:
+        columns_to_drop = ['id_user', 'doc_id', 'recorded_at', 'period', 'maxAnxietyLevel']
+        df = df.drop(columns=[col for col in columns_to_drop if col in df.columns], errors='ignore')
+        success(f'Columnas no relevantes eliminadas para {period} ✔')
+    except Exception as e:
+        error(f'Error al eliminar columnas no relevantes: {e}')
 
-    columns_to_drop = ['id_user', 'doc_id', 'recorded_at', 'period', 'maxAnxietyLevel']
-    df = df.drop(columns=[col for col in columns_to_drop if col in df.columns], errors='ignore')
-    success(f'Columnas no relevantes eliminadas para {period} ✔')
+    # 2. Rellenar columnas críticas con la media
+    print('-' * 60)
+    print(Fore.CYAN + f'[INFO] Rellenando valores faltantes en columnas críticas para {period}...')
+    try:
+        for col in critical_columns:
+            if col in df.columns and df[col].dtype in ['float64', 'int64']:
+                df[col] = df[col].fillna(df[col].mean())
+        success(f'Valores faltantes en columnas críticas rellenados para {period} ✔')
+    except Exception as e:
+        error(f'Error al rellenar columnas críticas: {e}')
 
-    for col in critical_columns:
-        if col in df.columns and df[col].dtype in ['float64', 'int64']:
-            df[col] = df[col].fillna(df[col].mean())
-    success(f'Valores faltantes en columnas críticas rellenados para {period} ✔')
+    # 3. One-hot encoding de variables categóricas
+    print('-' * 60)
+    print(Fore.CYAN + f'[INFO] Convirtiendo variables categóricas a numéricas mediante one-hot encoding...')
+    try:
+        categorical_cols = ['country', 'state', 'city', 'final_ranking']
+        df = pd.get_dummies(df, columns=[col for col in categorical_cols if col in df.columns], dummy_na=False)
+        success(f'Variables categóricas convertidas a numéricas para {period} ✔')
+    except Exception as e:
+        error(f'Error al convertir variables categóricas: {e}')
 
-    categorical_cols = ['country', 'state', 'city', 'final_ranking']
-    df = pd.get_dummies(df, columns=[col for col in categorical_cols if col in df.columns], dummy_na=False)
-    success(f'Variables categóricas convertidas a numéricas para {period} ✔')
+    # 4. Crear variable social_media_time
+    print('-' * 60)
+    print(Fore.CYAN + f'[INFO] Creando variable social_media_time...')
+    try:
+        if 'instagram_time' in df.columns and 'tiktok_time' in df.columns:
+            df['social_media_time'] = df['instagram_time'] + df['tiktok_time']
+            df['social_media_time'] = df['social_media_time'].fillna(df['social_media_time'].mean())
+            success(f'Variable social_media_time creada para {period} ✔')
+    except Exception as e:
+        error(f'Error al crear social_media_time: {e}')
 
-    if 'instagram_time' in df.columns and 'tiktok_time' in df.columns:
-        df['social_media_time'] = df['instagram_time'] + df['tiktok_time']
-        df['social_media_time'] = df['social_media_time'].fillna(df['social_media_time'].mean())
-        success(f'Variable social_media_time creada para {period} ✔')
+    # 5. Crear variable avg_emotion
+    print('-' * 60)
+    print(Fore.CYAN + f'[INFO] Creando variable avg_emotion...')
+    try:
+        if 'sadnessLevel' in df.columns and 'happinessLevel' in df.columns:
+            df['avg_emotion'] = (df['sadnessLevel'] + df['happinessLevel']) / 2
+            df['avg_emotion'] = df['avg_emotion'].fillna(df['avg_emotion'].mean())
+            success(f'Variable avg_emotion creada para {period} ✔')
+    except Exception as e:
+        error(f'Error al crear avg_emotion: {e}')
 
-    if 'sadnessLevel' in df.columns and 'happinessLevel' in df.columns:
-        df['avg_emotion'] = (df['sadnessLevel'] + df['happinessLevel']) / 2
-        df['avg_emotion'] = df['avg_emotion'].fillna(df['avg_emotion'].mean())
-        success(f'Variable avg_emotion creada para {period} ✔')
+    # 6. Rellenar NaNs en columnas numéricas
+    print('-' * 60)
+    print(Fore.CYAN + f'[INFO] Rellenando NaNs en columnas numéricas para {period}...')
+    try:
+        numeric_cols = df.select_dtypes(include=['number']).columns
+        df[numeric_cols] = df[numeric_cols].fillna(df[numeric_cols].mean())
+        success(f'Valores faltantes en columnas numéricas rellenados para {period} ✔')
+    except Exception as e:
+        error(f'Error al rellenar columnas numéricas: {e}')
 
-    numeric_cols = df.select_dtypes(include=['number']).columns
-    df[numeric_cols] = df[numeric_cols].fillna(df[numeric_cols].mean())
-    success(f'Valores faltantes en columnas numéricas rellenados para {period} ✔')
+    # 7. Alinear columnas con las del entrenamiento
+    print('-' * 60)
+    print(Fore.CYAN + f'[INFO] Alineando columnas con las del entrenamiento para {period}...')
+    try:
+        missing_cols = [col for col in training_cols if col not in df.columns]
+        for col in missing_cols:
+            df[col] = 0
+        extra_cols = [col for col in df.columns if col not in training_cols]
+        df = df.drop(columns=extra_cols)
+        df = df[training_cols]
+        success(f'Columnas alineadas con las del entrenamiento para {period} ✔')
+    except Exception as e:
+        error(f'Error al alinear columnas con las del entrenamiento: {e}')
 
-    missing_cols = [col for col in training_cols if col not in df.columns]
-    for col in missing_cols:
-        df[col] = 0
-
-    extra_cols = [col for col in df.columns if col not in training_cols]
-    df = df.drop(columns=extra_cols)
-    df = df[training_cols]
-    success(f'Columnas alineadas con las del entrenamiento para {period} ✔')
-
+    # Info final
+    print('\n' + '.' * 60)
     print(Fore.YELLOW + f'[INFO] Forma final del DataFrame para {period}: {df.shape}')
     print(Fore.YELLOW + f'[INFO] Columnas finales: {df.columns.tolist()}')
+    print('.' * 60)
     return df
 
-# Llamada al preprocesamiento en este paso
+# Llamada al preprocesamiento
 if prediction_period in training_columns and not df.empty:
     df_processed = preprocess_data(df, training_columns[prediction_period], prediction_period)
+
+    # Reasociar id_user con los datos procesados para usarlo después en la predicción
+    df_processed['id_user'] = id_users.reset_index(drop=True)
 else:
     error(f"No hay columnas de entrenamiento o datos vacíos para el periodo '{prediction_period}'")
     exit()
 
-# -------------------------- 
-# 6. Generación de Predicciones
-# --------------------------
+# -------------------------------
+# 5. Generación de Predicciones
+# -------------------------------
 print('\n' + '=' * 60)
-info('Paso 6: Generando predicciones...')
+info('Paso 5: Generando predicciones...')
 predictions = {}
 
 def generate_predictions(df_input, period, model, scaler, training_columns):
-    print(Fore.CYAN + f'\n[INFO] Procesando predicciones para {period}...')
-    
+    print(Fore.CYAN + f'[INFO] Procesando predicciones para {period}...')
+
     if df_input.shape[0] > 0:
-        
-        if df_processed.shape[0] > 0 and df_processed.shape[1] > 0:
-            X_scaled = scaler.transform(df_processed)
+        # Asegurarse de eliminar id_user antes de transformar
+        features = df_input.drop(columns=['id_user'], errors='ignore')
+
+        if features.shape[0] > 0 and features.shape[1] > 0:
+            X_scaled = scaler.transform(features)
 
             if np.isnan(X_scaled).any():
                 X_scaled = np.nan_to_num(X_scaled, nan=0.0)
 
+            # Generar predicciones y añadir al DataFrame
             predictions[period] = model.predict(X_scaled)
             df_input['predicted_maxAnxietyLevel'] = predictions[period]
-            success(f'Predicciones generadas para {period}: {len(predictions[period])} registros ✔')
-            
-            # Mostrar las predicciones generadas
-            print(Fore.GREEN + f'[INFO] Predicciones para formualrio de {period}: {df_input["predicted_maxAnxietyLevel"].tolist()}')
+            success(f'Predicciones generadas exitosamente: {len(predictions[period])} prediccione(s) obtenidas ✔')
+
+            # Imprimir predicción con su ID
+            print(Fore.YELLOW + f'[INFO] Predicciones para formualrios de {period} generadas::')
+            for idx, row in df_input.iterrows():
+                print(f" - Usuario con ID {row['id_user']} - Predicción del nivel de ansiedad: {row['predicted_maxAnxietyLevel']:.4f}")
         else:
             warning(f'No se pueden generar predicciones para {period}: DataFrame vacío o sin columnas procesadas.')
     else:
@@ -260,7 +317,7 @@ def generate_predictions(df_input, period, model, scaler, training_columns):
 
 # Aplicar predicción para night y morning si existen modelos y datos
 if 'night' in models:
-    generate_predictions(df, 'night', models['night'], scalers['night'], training_columns)
+    generate_predictions(df_processed, 'night', models['night'], scalers['night'], training_columns)
 
 if 'morning' in models:
-    generate_predictions(df, 'morning', models['morning'], scalers['morning'], training_columns)
+    generate_predictions(df_processed, 'morning', models['morning'], scalers['morning'], training_columns)
