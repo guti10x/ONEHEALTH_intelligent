@@ -531,14 +531,15 @@ def validate_and_upload_results(X_train_scaled, y_train, X_test_scaled, y_test, 
         # Guardar todos los modelos, columnas y scaler
         os.makedirs('modelos_guardados', exist_ok=True)
         for model_name, model in models.items():
-            joblib.dump(model, f'modelos_guardados/model_{form_type}_{model_name}.pkl')
-        joblib.dump(columns, f'modelos_guardados/training_columns_{form_type}.pkl')
-        joblib.dump(scaler, f'modelos_guardados/scaler_{form_type}.pkl')
-        success(f'Modelos, columnas y scaler guardados exitosamente para {form_type} ✔')
+            sanitized_model_name = model_name.replace(" ", "_")
+            joblib.dump(model, f'modelos_guardados/model_{form_type}_{sanitized_model_name}.pkl')
+            joblib.dump(columns, f'modelos_guardados/training_columns_{form_type}.pkl')
+            joblib.dump(scaler, f'modelos_guardados/scaler_{form_type}.pkl')
+            success(f'Modelos, columnas y scaler guardados exitosamente para {form_type} ✔')
         
         # Subir resultados a Firebase
         try:
-            db.collection('resultados').document(f'modelo_{form_type}_anxiety').set(results)
+            db.collection('models_stats').document(f'modelos_{form_type}_anxiety').set(results)
             success(f'Resultados subidos a Firebase exitosamente para {form_type} ✔')
         except Exception as e:
             error(f'Error al subir resultados a Firebase para {form_type}: {e}')

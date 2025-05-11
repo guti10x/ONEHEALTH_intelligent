@@ -1,6 +1,13 @@
 import firebase_admin
 from firebase_admin import credentials, firestore
 from colorama import Fore, Style, init
+import joblib
+import os
+from datetime import datetime, timedelta
+import pandas as pd
+
+# Inicializar colorama
+init(autoreset=True)
 
 # Funciones para imprimir con colores
 def info(msg): print(f"{Fore.BLUE}[INFO]{Style.RESET_ALL} {msg}")
@@ -34,7 +41,7 @@ print(Fore.BLUE + """
              ..:^^~~~~^::.                                                                                                                                                                                                                                                              
 """)
 print("-" * 100)
-print(Fore.BLUE + '[INFO] Iniciando el script de entrenamiento...')
+print(Fore.BLUE + '[INFO] Iniciando el script de predicción...')
 
 # --------------------------
 # 1. Conexión a Firebase
@@ -47,3 +54,116 @@ if not firebase_admin._apps:
 
 db = firestore.client()
 success('Conexión a Firebase realizada exitosamente ✔')
+
+# -----------------------------------------------------------------------------------------------------
+# 2. Obtención de los datos para predecir (formularios rellenados en la pasada ventana (mañana/noche))
+# -----------------------------------------------------------------------------------------------------
+print('\n' + '=' * 60)
+info('Paso 2: Obteniendo los últimos formularios rellenados del última ventana de formularios (mañana/noche)...')
+prediction_period = None
+try:
+    # Obtener la fecha y hora actual
+    now = datetime.now()
+    today = now.date()
+
+    # Determinar si vamos a predecir para noche o para mañana
+    if 6 <= now.hour < 19:
+        prediction_period = 'night'  # Estamos en mañana, predecimos para noche
+        print(Fore.YELLOW + f'[INFO] Obteniendo formularios de la mañana...')
+    else:
+        prediction_period = 'morning'  # Estamos en noche, predecimos para mañana
+        print(Fore.YELLOW + f'[INFO] Obteniendo formularios de la noche...')
+
+    # Determinar el rango de tiempo en función del periodo de predicción
+    if prediction_period == 'night':
+        start_time = datetime.combine(today - timedelta(days=1), datetime.min.time()) + timedelta(hours=19)
+        end_time = datetime.combine(today, datetime.min.time()) + timedelta(hours=6)
+    else:
+        start_time = datetime.combine(today, datetime.min.time()) + timedelta(hours=6)
+        end_time = datetime.combine(today, datetime.min.time()) + timedelta(hours=19)
+
+    period = prediction_period  # Conservamos esta variable para compatibilidad
+
+    info(f'Obteniendo formularios entre: {start_time} y {end_time} ({period})')
+
+    # Filtrar formularios en el rango de tiempo
+    docs = db.collection('formularios').where('recorded_at', '>=', start_time).where('recorded_at', '<', end_time).stream()
+    data = [doc.to_dict() for doc in docs]
+    df = pd.DataFrame(data)
+
+    success(f'{len(df)} formularios encontrados y cargados correctamente ✔')
+    print(Fore.YELLOW + f'[INFO] Datos cargados: {df.shape[0]} filas, {df.shape[1]} columnas')
+    print(Fore.YELLOW + f'[INFO] Columnas en datos crudos: {df.columns.tolist()}')
+except Exception as e:
+    error(f'Fallo al leer los formularios desde Firestore: {e}')
+    exit()
+
+
+# --------------------------------------
+# 3. Carga de Modelos y Escaladores
+# --------------------------------------
+print('\n' + '=' * 60)
+info('Paso 3: Cargando modelos, columnas y escaladores...')
+models = {}
+scalers = {}
+training_columns = {}
+
+# Definir rutas de archivos para cada periodo
+night_files = {
+    'model': 'modelos_guardados/model_noche_Linear_Regression.pkl',
+    'columns': 'modelos_guardados/training_columns_noche.pkl',
+    'scaler': 'modelos_guardados/scaler_mañana.pkl'
+}
+
+morning_files = {
+    'model': 'modelos_guardados/model_mañana_Linear_Regression.pkl',
+    'columns': 'modelos_guardados/training_columns_mañana.pkl',
+    'scaler': 'modelos_guardados/scaler_noche.pkl'
+}
+
+# Cargar solo los archivos del periodo actual de predicción
+if prediction_period == 'night':
+    # Cargar el modelo de "noche"
+    if os.path.exists(night_files['model']):
+        models['night'] = joblib.load(night_files['model'])
+        success('Modelo de noche cargado exitosamente ✔')
+    else:
+        warning('No se encontró el archivo del modelo de noche. No se podrá realizar la predicción para noche.')
+
+    # Cargar las columnas de entrenamiento de "noche"
+    if os.path.exists(night_files['columns']):
+        training_columns['night'] = joblib.load(night_files['columns'])
+        success('Columnas de entrenamiento de noche cargadas exitosamente ✔')
+    else:
+        warning('No se encontraron las columnas de entrenamiento de noche. No se podrá realizar la predicción para noche.')
+
+    # Cargar el escalador de "noche"
+    if os.path.exists(night_files['scaler']):
+        scalers['night'] = joblib.load(night_files['scaler'])
+        success('Escalador de noche cargado exitosamente ✔')
+    else:
+        warning('No se encontró el escalador de noche. No se podrá realizar la predicción para noche.')
+
+elif prediction_period == 'morning':
+    # Cargar el modelo de "mañana"
+    if os.path.exists(morning_files['model']):
+        models['morning'] = joblib.load(morning_files['model'])
+        success('Modelo de mañana cargado exitosamente ✔')
+    else:
+        warning('No se encontró el archivo del modelo de mañana. No se podrá realizar la predicción para mañana.')
+
+    # Cargar las columnas de entrenamiento de "mañana"
+    if os.path.exists(morning_files['columns']):
+        training_columns['morning'] = joblib.load(morning_files['columns'])
+        success('Columnas de entrenamiento de mañana cargadas exitosamente ✔')
+    else:
+        warning('No se encontraron las columnas de entrenamiento de mañana. No se podrá realizar la predicción para mañana.')
+
+    # Cargar el escalador de "mañana"
+    if os.path.exists(morning_files['scaler']):
+        scalers['morning'] = joblib.load(morning_files['scaler'])
+        success('Escalador de mañana cargado exitosamente ✔')
+    else:
+        warning('No se encontró el escalador de mañana. No se podrá realizar la predicción para mañana.')
+
+
