@@ -5,6 +5,7 @@ import joblib
 import os
 from datetime import datetime, timedelta
 import pandas as pd
+import numpy as np
 
 # Inicializar colorama
 init(autoreset=True)
@@ -90,7 +91,10 @@ try:
     docs = db.collection('formularios').where('recorded_at', '>=', start_time).where('recorded_at', '<', end_time).stream()
     data = [doc.to_dict() for doc in docs]
     df = pd.DataFrame(data)
-
+    # Imprimir los datos obtenidos de Firebase
+    print(Fore.CYAN + '[DEBUG] Datos obtenidos de Firebase:')
+    for i, doc in enumerate(data):
+        print(f"Documento {i + 1}: {doc}")
     success(f'{len(df)} formularios encontrados y cargados correctamente ✔')
     print(Fore.YELLOW + f'[INFO] Datos cargados: {df.shape[0]} filas, {df.shape[1]} columnas')
     print(Fore.YELLOW + f'[INFO] Columnas en datos crudos: {df.columns.tolist()}')
@@ -112,58 +116,151 @@ training_columns = {}
 night_files = {
     'model': 'modelos_guardados/model_noche_Linear_Regression.pkl',
     'columns': 'modelos_guardados/training_columns_noche.pkl',
-    'scaler': 'modelos_guardados/scaler_mañana.pkl'
+    'scaler': 'modelos_guardados/scaler_noche.pkl'
 }
 
 morning_files = {
     'model': 'modelos_guardados/model_mañana_Linear_Regression.pkl',
     'columns': 'modelos_guardados/training_columns_mañana.pkl',
-    'scaler': 'modelos_guardados/scaler_noche.pkl'
+    'scaler': 'modelos_guardados/scaler_mañana.pkl'
 }
 
-# Cargar solo los archivos del periodo actual de predicción
+# Cargar archivos según el periodo de predicción
 if prediction_period == 'night':
-    # Cargar el modelo de "noche"
     if os.path.exists(night_files['model']):
         models['night'] = joblib.load(night_files['model'])
         success('Modelo de noche cargado exitosamente ✔')
     else:
-        warning('No se encontró el archivo del modelo de noche. No se podrá realizar la predicción para noche.')
+        warning('No se encontró el archivo del modelo de noche.')
 
-    # Cargar las columnas de entrenamiento de "noche"
     if os.path.exists(night_files['columns']):
         training_columns['night'] = joblib.load(night_files['columns'])
         success('Columnas de entrenamiento de noche cargadas exitosamente ✔')
     else:
-        warning('No se encontraron las columnas de entrenamiento de noche. No se podrá realizar la predicción para noche.')
+        warning('No se encontraron las columnas de entrenamiento de noche.')
 
-    # Cargar el escalador de "noche"
     if os.path.exists(night_files['scaler']):
         scalers['night'] = joblib.load(night_files['scaler'])
         success('Escalador de noche cargado exitosamente ✔')
     else:
-        warning('No se encontró el escalador de noche. No se podrá realizar la predicción para noche.')
+        warning('No se encontró el escalador de noche.')
 
 elif prediction_period == 'morning':
-    # Cargar el modelo de "mañana"
     if os.path.exists(morning_files['model']):
         models['morning'] = joblib.load(morning_files['model'])
         success('Modelo de mañana cargado exitosamente ✔')
     else:
-        warning('No se encontró el archivo del modelo de mañana. No se podrá realizar la predicción para mañana.')
+        warning('No se encontró el archivo del modelo de mañana.')
 
-    # Cargar las columnas de entrenamiento de "mañana"
     if os.path.exists(morning_files['columns']):
         training_columns['morning'] = joblib.load(morning_files['columns'])
         success('Columnas de entrenamiento de mañana cargadas exitosamente ✔')
     else:
-        warning('No se encontraron las columnas de entrenamiento de mañana. No se podrá realizar la predicción para mañana.')
+        warning('No se encontraron las columnas de entrenamiento de mañana.')
 
-    # Cargar el escalador de "mañana"
     if os.path.exists(morning_files['scaler']):
         scalers['morning'] = joblib.load(morning_files['scaler'])
         success('Escalador de mañana cargado exitosamente ✔')
     else:
-        warning('No se encontró el escalador de mañana. No se podrá realizar la predicción para mañana.')
+        warning('No se encontró el escalador de mañana.')
 
+# --------------------------
+# 4. Preprocesamiento de Datos
+# --------------------------
+print('\n' + '=' * 60)
+info('Paso 4: Preprocesando datos...')
 
+# Aquí ya no separo entre df_night y df_morning, trabajo con el df completo
+print(f"[DEBUG] prediction_period: '{prediction_period}'")
+print(f"[DEBUG] training_columns keys: {list(training_columns.keys())}")
+print(f"[DEBUG] df rows: {df.shape[0]}")
+
+# Definición de la función de preprocesamiento de datos
+def preprocess_data(df, training_cols, period):
+    print(Fore.CYAN + f'\n[INFO] Preprocesando datos para {period} con {df.shape[0]} filas iniciales')
+
+    critical_columns = ['sadnessLevel', 'avgEnergyLevel', 'happinessLevel']
+    print(Fore.YELLOW + f'[INFO] Columnas críticas presentes: {[col for col in critical_columns if col in df.columns]}')
+
+    columns_to_drop = ['id_user', 'doc_id', 'recorded_at', 'period', 'maxAnxietyLevel']
+    df = df.drop(columns=[col for col in columns_to_drop if col in df.columns], errors='ignore')
+    success(f'Columnas no relevantes eliminadas para {period} ✔')
+
+    for col in critical_columns:
+        if col in df.columns and df[col].dtype in ['float64', 'int64']:
+            df[col] = df[col].fillna(df[col].mean())
+    success(f'Valores faltantes en columnas críticas rellenados para {period} ✔')
+
+    categorical_cols = ['country', 'state', 'city', 'final_ranking']
+    df = pd.get_dummies(df, columns=[col for col in categorical_cols if col in df.columns], dummy_na=False)
+    success(f'Variables categóricas convertidas a numéricas para {period} ✔')
+
+    if 'instagram_time' in df.columns and 'tiktok_time' in df.columns:
+        df['social_media_time'] = df['instagram_time'] + df['tiktok_time']
+        df['social_media_time'] = df['social_media_time'].fillna(df['social_media_time'].mean())
+        success(f'Variable social_media_time creada para {period} ✔')
+
+    if 'sadnessLevel' in df.columns and 'happinessLevel' in df.columns:
+        df['avg_emotion'] = (df['sadnessLevel'] + df['happinessLevel']) / 2
+        df['avg_emotion'] = df['avg_emotion'].fillna(df['avg_emotion'].mean())
+        success(f'Variable avg_emotion creada para {period} ✔')
+
+    numeric_cols = df.select_dtypes(include=['number']).columns
+    df[numeric_cols] = df[numeric_cols].fillna(df[numeric_cols].mean())
+    success(f'Valores faltantes en columnas numéricas rellenados para {period} ✔')
+
+    missing_cols = [col for col in training_cols if col not in df.columns]
+    for col in missing_cols:
+        df[col] = 0
+
+    extra_cols = [col for col in df.columns if col not in training_cols]
+    df = df.drop(columns=extra_cols)
+    df = df[training_cols]
+    success(f'Columnas alineadas con las del entrenamiento para {period} ✔')
+
+    print(Fore.YELLOW + f'[INFO] Forma final del DataFrame para {period}: {df.shape}')
+    print(Fore.YELLOW + f'[INFO] Columnas finales: {df.columns.tolist()}')
+    return df
+
+# Llamada al preprocesamiento en este paso
+if prediction_period in training_columns and not df.empty:
+    df_processed = preprocess_data(df, training_columns[prediction_period], prediction_period)
+else:
+    error(f"No hay columnas de entrenamiento o datos vacíos para el periodo '{prediction_period}'")
+    exit()
+
+# -------------------------- 
+# 6. Generación de Predicciones
+# --------------------------
+print('\n' + '=' * 60)
+info('Paso 6: Generando predicciones...')
+predictions = {}
+
+def generate_predictions(df_input, period, model, scaler, training_columns):
+    print(Fore.CYAN + f'\n[INFO] Procesando predicciones para {period}...')
+    
+    if df_input.shape[0] > 0:
+        
+        if df_processed.shape[0] > 0 and df_processed.shape[1] > 0:
+            X_scaled = scaler.transform(df_processed)
+
+            if np.isnan(X_scaled).any():
+                X_scaled = np.nan_to_num(X_scaled, nan=0.0)
+
+            predictions[period] = model.predict(X_scaled)
+            df_input['predicted_maxAnxietyLevel'] = predictions[period]
+            success(f'Predicciones generadas para {period}: {len(predictions[period])} registros ✔')
+            
+            # Mostrar las predicciones generadas
+            print(Fore.GREEN + f'[INFO] Predicciones para formualrio de {period}: {df_input["predicted_maxAnxietyLevel"].tolist()}')
+        else:
+            warning(f'No se pueden generar predicciones para {period}: DataFrame vacío o sin columnas procesadas.')
+    else:
+        warning(f'No se pueden generar predicciones para {period}: DataFrame vacío.')
+
+# Aplicar predicción para night y morning si existen modelos y datos
+if 'night' in models:
+    generate_predictions(df, 'night', models['night'], scalers['night'], training_columns)
+
+if 'morning' in models:
+    generate_predictions(df, 'morning', models['morning'], scalers['morning'], training_columns)
