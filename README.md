@@ -5,6 +5,9 @@ Mediante la aplicación de técnicas de aprendizaje automático, esta herramient
 - Datos biométricos obtenidos de dispositivos wearables.
 - Datos del dispositivo y su uso por parte del usuario mediante la API de Capacitor integrada en la aplicación.
 
+## Diagrama de arquietectura
+![final_diagram drawio](https://github.com/user-attachments/assets/0fd3da9e-0e4c-4bf9-b4a9-edf565f5c57e)
+
 ## Instalación 
 
 Antes de comenzar, asegúrate de cumplir con los siguientes requisitos:
